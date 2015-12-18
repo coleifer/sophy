@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include src/sophia.c
+include src/sophia.h
+include sophy.pyx
+include tests.py
+recursive-include docs *
+
+global-exclude *.pyc
+global-exclude *.o
+global-exclude *.so.0.1
