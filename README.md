@@ -1,4 +1,5 @@
-![](http://media.charlesleifer.com/blog/photos/sophia-logo.png)
+
+<a href="http://sphia.org"><img src="http://media.charlesleifer.com/blog/photos/sophia-logo.png" width="215px" height="95px" /></a>
 
 `sophy`, fast Python bindings for [Sophia Database](http://sphia.org).
 
