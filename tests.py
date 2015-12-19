@@ -184,6 +184,129 @@ class TestSophia(BaseTestCase):
             ('aba', '3'),
             ('abb', '4')])
 
+    def _store_range_data(self):
+        data = {
+            'bb': 'bbb',
+            'gg': 'ggg',
+            'aa': 'aaa',
+            'dd': 'ddd',
+            'zz': 'zzz',
+            'ee': 'eee',
+            'bbb': 'bbb'}
+        self.db.update(data)
+
+    def assertRange(self, l, expected):
+        self.assertEqual(list(l), expected)
+
+    def test_range_endpoints(self):
+        self._store_range_data()
+
+        # everything to 'dd'.
+        self.assertRange(self.db[:'dd'], [
+            ('aa', 'aaa'),
+            ('bb', 'bbb'),
+            ('bbb', 'bbb'),
+            ('dd', 'ddd')])
+
+        # everything to 'dd' but reversed.
+        self.assertRange(self.db[:'dd':True], [
+            ('dd', 'ddd'),
+            ('bbb', 'bbb'),
+            ('bb', 'bbb'),
+            ('aa', 'aaa')])
+
+        # everthing from 'dd' on.
+        self.assertRange(self.db['dd':], [
+            ('dd', 'ddd'),
+            ('ee', 'eee'),
+            ('gg', 'ggg'),
+            ('zz', 'zzz')])
+
+        # everthing from 'dd' on but reversed.
+        self.assertRange(self.db['dd'::True], [
+            ('zz', 'zzz'),
+            ('gg', 'ggg'),
+            ('ee', 'eee'),
+            ('dd', 'ddd')])
+
+        # everything.
+        self.assertRange(self.db[:], [
+            ('aa', 'aaa'),
+            ('bb', 'bbb'),
+            ('bbb', 'bbb'),
+            ('dd', 'ddd'),
+            ('ee', 'eee'),
+            ('gg', 'ggg'),
+            ('zz', 'zzz')])
+
+        # everything reversed.
+        self.assertRange(self.db[::True], [
+            ('zz', 'zzz'),
+            ('gg', 'ggg'),
+            ('ee', 'eee'),
+            ('dd', 'ddd'),
+            ('bbb', 'bbb'),
+            ('bb', 'bbb'),
+            ('aa', 'aaa')])
+
+    def test_ranges(self):
+        self._store_range_data()
+
+        # Everything from aa to bb.
+        self.assertRange(self.db['aa':'bb'], [
+            ('aa', 'aaa'),
+            ('bb', 'bbb')])
+
+        # Everything from aa to bb but reversed.
+        self.assertRange(self.db['aa':'bb':True], [
+            ('bb', 'bbb'),
+            ('aa', 'aaa')])
+
+        # Everything from bb to aa (reverse implied).
+        self.assertRange(self.db['bb':'aa'], [
+            ('bb', 'bbb'),
+            ('aa', 'aaa')])
+
+        # Everything from bb to aa (reverse specified).
+        self.assertRange(self.db['bb':'aa':True], [
+            ('bb', 'bbb'),
+            ('aa', 'aaa')])
+
+        # Missing endpoint.
+        self.assertRange(self.db['bb':'ff'], [
+            ('bb', 'bbb'),
+            ('bbb', 'bbb'),
+            ('dd', 'ddd'),
+            ('ee', 'eee')])
+
+        # Missing endpoint reverse.
+        self.assertRange(self.db['ff':'bb'], [
+            ('ee', 'eee'),
+            ('dd', 'ddd'),
+            ('bbb', 'bbb'),
+            ('bb', 'bbb')])
+        self.assertRange(self.db['bb':'ff':True], [
+            ('ee', 'eee'),
+            ('dd', 'ddd'),
+            ('bbb', 'bbb'),
+            ('bb', 'bbb')])
+
+        # Missing startpoint.
+        self.assertRange(self.db['cc':'hh'], [
+            ('dd', 'ddd'),
+            ('ee', 'eee'),
+            ('gg', 'ggg')])
+
+        # Missing startpoint reverse.
+        self.assertRange(self.db['hh':'cc'], [
+            ('gg', 'ggg'),
+            ('ee', 'eee'),
+            ('dd', 'ddd')])
+        self.assertRange(self.db['cc':'hh':True], [
+            ('gg', 'ggg'),
+            ('ee', 'eee'),
+            ('dd', 'ddd')])
+
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)

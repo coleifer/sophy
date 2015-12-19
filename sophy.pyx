@@ -318,6 +318,8 @@ cdef class Sophia(object):
                 wb[key] = k[key]
 
     def __getitem__(self, key):
+        if isinstance(key, slice):
+            return self.get_range(key.start, key.stop, key.step)
         return self.idx.get(key)
 
     def __setitem__(self, key, value):
@@ -328,6 +330,35 @@ cdef class Sophia(object):
 
     def __contains__(self, key):
         return self.idx.exists(key)
+
+    def get_range(self, start=None, stop=None, reverse=False):
+        cdef:
+            Cursor cursor
+
+        start_key = start or ''
+        end_key = stop or ''
+
+        if start_key > end_key and not reverse and end_key:
+            reverse = True
+
+        if reverse:
+            if ((end_key and not start_key) or
+                (start_key and not end_key) or
+                (start_key < end_key)):
+
+                start_key, end_key = end_key, start_key
+
+
+        order = '<=' if reverse else '>='
+        cursor = self.cursor(order=order, key=start_key)
+        for key, value in cursor:
+            if end_key:
+                if reverse and key < end_key:
+                    raise StopIteration
+                elif not reverse and key > end_key:
+                    raise StopIteration
+
+            yield (key, value)
 
     def keys(self):
         cdef Cursor cursor = self.cursor(values=False)
