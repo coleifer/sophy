@@ -9,6 +9,7 @@ Features:
 * Consistent cursors
 * Compression
 * Ordered key/value store
+* Range searches
 * Prefix searches
 * Python 2.x and 3.x
 
