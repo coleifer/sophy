@@ -345,6 +345,8 @@ cdef class Sophia(object):
 
         order = '<=' if reverse else '>='
         if start_key and order == '<=':
+            # XXX: This is a hack to work around a bug in 2.1.1, remove when
+            # fixed upstream. Refs GitHub issue sphia#70.
             start_key += '\x01'
 
         cursor = self.cursor(order=order, key=start_key)
