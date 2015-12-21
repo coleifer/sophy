@@ -1,6 +1,6 @@
 <a href="http://sphia.org"><img src="http://media.charlesleifer.com/blog/photos/sophia-logo.png" width="215px" height="95px" /></a>
 
-`sophy`, fast Python bindings for [Sophia Database](http://sphia.org), v1.2.3.
+`sophy`, fast Python bindings for [Sophia Database](http://sphia.org), v2.1.
 
 Features:
 
