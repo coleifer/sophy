@@ -14,7 +14,7 @@ cdef extern from "Python.h":
 
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
-    cdef void *sp_object(void *)
+    cdef void *sp_document(void *)
 
     cdef int sp_open(void *)
     cdef int sp_drop(void *)
@@ -24,7 +24,6 @@ cdef extern from "src/sophia.h":
     cdef void *sp_asynchronous(void *)
     cdef void *sp_poll(void*)
 
-    cdef int sp_setobject(void*, const char*, const void*)
     cdef int sp_setstring(void*, const char*, const void*, int)
     cdef int sp_setint(void*, const char*, int64_t)
 
@@ -33,12 +32,11 @@ cdef extern from "src/sophia.h":
     cdef int64_t sp_getint(void*, const char*)
 
     cdef int sp_set(void*, void*)
-    cdef int sp_update(void*, void*)
+    cdef int sp_upsert(void*, void*)
     cdef int sp_delete(void*, void*)
     cdef void *sp_get(void*, void*)
 
     cdef void *sp_cursor(void*)
-    cdef void *sp_batch(void *)
     cdef void *sp_begin(void *)
     cdef int sp_prepare(void *)
     cdef int sp_commit(void *)
@@ -301,21 +299,18 @@ cdef class Sophia(object):
     cpdef transaction(self):
         return Transaction(self)
 
-    cpdef batch(self):
-        return Batch(self)
-
     cpdef cursor(self, order='>=', key=None, prefix=None, keys=True,
                  values=True):
         return Cursor(self, order=order, key=key, prefix=prefix, keys=keys,
                       values=values)
 
     def update(self, dict _data=None, **k):
-        with self.batch() as wb:
+        with self.transaction() as txn:
             if _data:
                 for key in _data:
-                    wb[key] = _data[key]
+                    txn[key] = _data[key]
             for key in k:
-                wb[key] = k[key]
+                txn[key] = k[key]
 
     def __getitem__(self, key):
         if isinstance(key, slice):
@@ -348,9 +343,12 @@ cdef class Sophia(object):
 
                 start_key, end_key = end_key, start_key
 
-
         order = '<=' if reverse else '>='
+        if start_key and order == '<=':
+            start_key += '\x01'
+
         cursor = self.cursor(order=order, key=start_key)
+
         for key, value in cursor:
             if end_key:
                 if reverse and key < end_key:
@@ -422,7 +420,7 @@ cdef class Cursor(object):
         if self.cursor:
             sp_destroy(self.cursor)
         self.cursor = sp_cursor(self.sophia.env)
-        self.handle = sp_object(self.sophia.db)
+        self.handle = sp_document(self.sophia.db)
         sp_setstring(self.handle, 'order', <char *>self.order, 0)
         if self.key:
             sp_setstring(self.handle, 'key', <char *>self.key, 0)
@@ -529,21 +527,6 @@ cdef class Transaction(_BaseTransaction):
                                 'concurrent transaction to finish.')
 
 
-cdef class Batch(_BaseTransaction):
-    cdef void *create_handle(self):
-        return sp_batch(self.sophia.db)
-
-    cdef check(self, int rc):
-        try:
-            _check(self.sophia.env, rc)
-        except:
-            sp_destroy(self.handle)
-            raise
-
-    def __getitem__(self, key):
-        raise Exception('Batches only support writes.')
-
-
 cdef class _Index(object):
     cdef:
         _BaseTransaction target
@@ -576,7 +559,7 @@ cdef class _Index(object):
             char *kbuf
             char *vbuf
             Py_ssize_t klen, vlen
-            void *obj = sp_object(self.db)
+            void *obj = sp_document(self.db)
 
         PyString_AsStringAndSize(key, &kbuf, &klen)
         PyString_AsStringAndSize(value, &vbuf, &vlen)
@@ -589,7 +572,7 @@ cdef class _Index(object):
         cdef:
             char *kbuf
             Py_ssize_t klen
-            void *obj = sp_object(self.db)
+            void *obj = sp_document(self.db)
 
         PyString_AsStringAndSize(key, &kbuf, &klen)
         sp_setstring(obj, 'key', kbuf, klen + 1)
@@ -604,7 +587,7 @@ cdef class _Index(object):
         cdef:
             char *kbuf
             Py_ssize_t klen
-            void *obj = sp_object(self.db)
+            void *obj = sp_document(self.db)
 
         PyString_AsStringAndSize(key, &kbuf, &klen)
         sp_setstring(obj, 'key', kbuf, klen + 1)
@@ -614,7 +597,7 @@ cdef class _Index(object):
         cdef:
             char *kbuf
             Py_ssize_t klen
-            void *obj = sp_object(self.db)
+            void *obj = sp_document(self.db)
 
         PyString_AsStringAndSize(key, &kbuf, &klen)
         sp_setstring(obj, 'key', kbuf, klen + 1)

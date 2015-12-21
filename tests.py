@@ -31,7 +31,7 @@ class TestSophia(BaseTestCase):
 
     def test_version(self):
         v = self.db.version
-        self.assertEqual(v, '1.2.3')
+        self.assertEqual(v, '2.1.1')
 
     def test_kv(self):
         self.db['k1'] = 'v1'
@@ -107,19 +107,6 @@ class TestSophia(BaseTestCase):
 
         self.assertEqual(self.db['k1'], 'v1')
         self.assertEqual(self.db['k2'], 'v2')
-        self.assertEqual(self.db['k3'], 'v3')
-
-    def test_wb(self):
-        self.db['k1'] = 'v1'
-        self.db['k2'] = 'v2'
-        with self.db.batch() as wb:
-            self.assertRaises(Exception, lambda: wb['k1'])
-            wb['k1'] = 'v1-e'
-            del wb['k2']
-            wb['k3'] = 'v3'
-
-        self.assertEqual(self.db['k1'], 'v1-e')
-        self.assertRaises(KeyError, lambda: self.db['k2'])
         self.assertEqual(self.db['k3'], 'v3')
 
     def test_cursor(self):
