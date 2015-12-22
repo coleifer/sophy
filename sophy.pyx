@@ -344,11 +344,6 @@ cdef class Sophia(object):
                 start_key, end_key = end_key, start_key
 
         order = '<=' if reverse else '>='
-        if start_key and order == '<=':
-            # XXX: This is a hack to work around a bug in 2.1.1, remove when
-            # fixed upstream. Refs GitHub issue sphia#70.
-            start_key += '\x01'
-
         cursor = self.cursor(order=order, key=start_key)
 
         for key, value in cursor:
@@ -419,13 +414,18 @@ cdef class Cursor(object):
             sp_destroy(self.cursor)
 
     def __iter__(self):
+        cdef:
+            char *kbuf
+            Py_ssize_t klen
+
         if self.cursor:
             sp_destroy(self.cursor)
         self.cursor = sp_cursor(self.sophia.env)
         self.handle = sp_document(self.sophia.db)
-        sp_setstring(self.handle, 'order', <char *>self.order, 0)
         if self.key:
-            sp_setstring(self.handle, 'key', <char *>self.key, 0)
+            PyString_AsStringAndSize(self.key, &kbuf, &klen)
+            sp_setstring(self.handle, 'key', kbuf, klen + 1)
+        sp_setstring(self.handle, 'order', <char *>self.order, 0)
         if self.prefix:
             sp_setstring(
                 self.handle,
