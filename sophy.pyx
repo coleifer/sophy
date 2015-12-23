@@ -695,6 +695,48 @@ cdef class _Index(object):
         return True
 
 
+cdef class _UInt32Index(_Index):
+    index_type = 'u32'
+
+    cdef set_key(self, void *obj, key):
+        cdef:
+            uint32_t* key_ptr = <uint32_t*>malloc(sizeof(uint32_t))
+            Py_ssize_t klen = sizeof(uint32_t)
+
+        key_ptr[0] = <uint32_t>key
+        sp_setstring(obj, <char *>self.key, key_ptr, klen + 1)
+
+    cdef extract_key(self, void *obj):
+        cdef:
+            int nlen
+            void *ptr
+
+        ptr = sp_getstring(obj, <char *>self.key, &nlen)
+        if ptr:
+            return <uint32_t>((<uint32_t *>ptr)[0])
+
+
+cdef class _UInt64Index(_Index):
+    index_type = 'u64'
+
+    cdef set_key(self, void *obj, key):
+        cdef:
+            uint64_t* key_ptr = <uint64_t*>malloc(sizeof(uint64_t))
+            Py_ssize_t klen = sizeof(uint64_t)
+
+        key_ptr[0] = <uint64_t>key
+        sp_setstring(obj, <char *>self.key, key_ptr, klen + 1)
+
+    cdef extract_key(self, void *obj):
+        cdef:
+            int nlen
+            void *ptr
+
+        ptr = sp_getstring(obj, <char *>self.key, &nlen)
+        if ptr:
+            return <uint64_t>((<uint64_t *>ptr)[0])
+
+
 cdef class _MultiIndex(_Index):
     cdef:
         tuple indexes
@@ -770,6 +812,7 @@ cdef class _MultiIndex(_Index):
 
 cdef dict INDEX_TYPE_MAP = {
     'string': _Index,
+    'u32': _UInt32Index,
 }
 
 """ADD: # cython: profile=True to top of file to use with cProfile."""

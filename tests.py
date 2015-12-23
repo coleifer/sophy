@@ -334,6 +334,30 @@ class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
             ('abb', '4')])
 
 
+class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
+    def create_db(self):
+        return Sophia('test-kvi', path=TEST_DIR, index_type='u32')
+
+    def get_keys(self):
+        return (
+            0,
+            1,
+            10,
+            11)
+
+    def set_key_vars(self):
+        self.r1 = 0
+        self.r2 = 3
+        self.r3 = 8
+        self.r4 = 10
+        self.r5 = 14
+        self.r6 = 16
+        self.r7 = 70
+
+        self.r3_1 = 9
+        self.r5_1 = 15
+
+
 class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
     def create_db(self):
         return Sophia(
