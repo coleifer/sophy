@@ -10,8 +10,8 @@
 /* amalgamation build
  *
  * version:     2.1
- * build:       39b7e2b
- * build date:  Mon Dec 21 08:55:44 CST 2015
+ * build:       d58548a
+ * build date:  Wed Dec 23 08:27:50 CST 2015
  *
  * compilation:
  * cc -O2 -DNDEBUG -std=c99 -pedantic -Wall -Wextra -pthread -c sophia.c
@@ -19,7 +19,7 @@
 
 /* {{{ */
 
-#define SOPHIA_BUILD "39b7e2b"
+#define SOPHIA_BUILD "d58548a"
 
 #line 1 "sophia/std/ss_posix.h"
 #ifndef SS_POSIX_H_
@@ -470,7 +470,6 @@ struct ssvfsif {
 	int64_t (*write)(ssvfs*, int, void*, int);
 	int64_t (*writev)(ssvfs*, int, ssiov*);
 	int64_t (*seek)(ssvfs*, int, uint64_t);
-
 	int     (*mmap)(ssvfs*, ssmmap*, int, uint64_t, int);
 	int     (*mmap_allocate)(ssvfs*, ssmmap*, uint64_t);
 	int     (*mremap)(ssvfs*, ssmmap*, uint64_t);
@@ -9327,7 +9326,9 @@ ss_stdvfs_mremap(ssvfs *f ssunused, ssmmap *m, uint64_t size)
 	if (ssunlikely(m->p == NULL))
 		return ss_stdvfs_mmap_allocate(f, m, size);
 	void *p;
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if  defined(__APPLE__) || \
+     defined(__FreeBSD__) || \
+	(defined(__FreeBSD_kernel__) && defined(__GLIBC__)) /* kFreeBSD */
 	p = mmap(NULL, size, PROT_READ|PROT_WRITE,
 	         MAP_PRIVATE|MAP_ANON, -1, 0);
 	if (p == MAP_FAILED)
@@ -23949,156 +23950,6 @@ int si_profilerend(siprofiler*);
 int si_profiler(siprofiler*);
 
 #endif
-#line 1 "sophia/index/si.c"
-
-/*
- * sophia database
- * sphia.org
- *
- * Copyright (c) Dmitry Simonenko
- * BSD License
-*/
-
-
-
-
-
-
-
-
-int si_init(si *i, sr *r)
-{
-	int rc = si_plannerinit(&i->p, r->a, i);
-	if (ssunlikely(rc == -1))
-		return -1;
-	ss_bufinit(&i->readbuf);
-	sv_upsertinit(&i->u);
-	ss_rbinit(&i->i);
-	ss_mutexinit(&i->lock);
-	i->scheme       = NULL;
-	i->update_time  = 0;
-	i->lru_run_lsn  = 0;
-	i->lru_v        = 0;
-	i->lru_steps    = 1;
-	i->lru_intr_lsn = 0;
-	i->lru_intr_sum = 0;
-	i->size         = 0;
-	i->read_disk    = 0;
-	i->read_cache   = 0;
-	i->backup       = 0;
-	i->snapshot_run = 0;
-	i->snapshot     = 0;
-	i->destroyed    = 0;
-	i->r            = r;
-	return 0;
-}
-
-int si_open(si *i, sischeme *scheme)
-{
-	i->scheme = scheme;
-	return si_recover(i);
-}
-
-ss_rbtruncate(si_truncate,
-              si_nodefree(sscast(n, sinode, node), (sr*)arg, 0))
-
-int si_close(si *i)
-{
-	if (i->destroyed)
-		return 0;
-	int rcret = 0;
-	if (i->i.root)
-		si_truncate(i->i.root, i->r);
-	i->i.root = NULL;
-	sv_upsertfree(&i->u, i->r);
-	ss_buffree(&i->readbuf, i->r->a);
-	si_plannerfree(&i->p, i->r->a);
-	ss_mutexfree(&i->lock);
-	i->destroyed = 1;
-	return rcret;
-}
-
-ss_rbget(si_match,
-         sr_compare(scheme,
-                    sd_indexpage_min(&(sscast(n, sinode, node))->self.index,
-                                     sd_indexmin(&(sscast(n, sinode, node))->self.index)),
-                    sd_indexmin(&(sscast(n, sinode, node))->self.index)->sizemin,
-                                key, keysize))
-
-int si_insert(si *i, sinode *n)
-{
-	sdindexpage *min = sd_indexmin(&n->self.index);
-	ssrbnode *p = NULL;
-	int rc = si_match(&i->i, i->r->scheme,
-	                  sd_indexpage_min(&n->self.index, min),
-	                  min->sizemin, &p);
-	assert(! (rc == 0 && p));
-	ss_rbset(&i->i, p, rc, &n->node);
-	i->n++;
-	return 0;
-}
-
-int si_remove(si *i, sinode *n)
-{
-	ss_rbremove(&i->i, &n->node);
-	i->n--;
-	return 0;
-}
-
-int si_replace(si *i, sinode *o, sinode *n)
-{
-	ss_rbreplace(&i->i, &o->node, &n->node);
-	return 0;
-}
-
-int si_plan(si *i, siplan *plan)
-{
-	si_lock(i);
-	int rc = si_planner(&i->p, plan);
-	si_unlock(i);
-	return rc;
-}
-
-int si_execute(si *i, sdc *c, siplan *plan,
-               uint64_t vlsn,
-               uint64_t vlsn_lru)
-{
-	int rc = -1;
-	switch (plan->plan) {
-	case SI_CHECKPOINT:
-	case SI_BRANCH:
-	case SI_AGE:
-		rc = si_branch(i, c, plan, vlsn);
-		break;
-	case SI_LRU:
-	case SI_GC:
-	case SI_COMPACT:
-		rc = si_compact(i, c, plan, vlsn, vlsn_lru, NULL, 0);
-		break;
-	case SI_COMPACT_INDEX:
-		rc = si_compact_index(i, c, plan, vlsn, vlsn_lru);
-		break;
-	case SI_ANTICACHE:
-		rc = si_anticache(i, plan);
-		break;
-	case SI_SNAPSHOT:
-		rc = si_snapshot(i, plan);
-		break;
-	case SI_BACKUP:
-	case SI_BACKUPEND:
-		rc = si_backup(i, c, plan);
-		break;
-	case SI_SHUTDOWN:
-		rc = si_close(i);
-		break;
-	case SI_DROP:
-		rc = si_drop(i);
-		break;
-	}
-	/* garbage collect buffers */
-	sd_cgc(c, i->r, i->scheme->buf_gc_wm);
-	return rc;
-}
 #line 1 "sophia/index/si_anticache.c"
 
 /*
@@ -24295,6 +24146,156 @@ int si_backup(si *index, sdc *c, siplan *plan)
 	si_nodeunlock(node);
 	si_unlock(index);
 	return 0;
+}
+#line 1 "sophia/index/si.c"
+
+/*
+ * sophia database
+ * sphia.org
+ *
+ * Copyright (c) Dmitry Simonenko
+ * BSD License
+*/
+
+
+
+
+
+
+
+
+int si_init(si *i, sr *r)
+{
+	int rc = si_plannerinit(&i->p, r->a, i);
+	if (ssunlikely(rc == -1))
+		return -1;
+	ss_bufinit(&i->readbuf);
+	sv_upsertinit(&i->u);
+	ss_rbinit(&i->i);
+	ss_mutexinit(&i->lock);
+	i->scheme       = NULL;
+	i->update_time  = 0;
+	i->lru_run_lsn  = 0;
+	i->lru_v        = 0;
+	i->lru_steps    = 1;
+	i->lru_intr_lsn = 0;
+	i->lru_intr_sum = 0;
+	i->size         = 0;
+	i->read_disk    = 0;
+	i->read_cache   = 0;
+	i->backup       = 0;
+	i->snapshot_run = 0;
+	i->snapshot     = 0;
+	i->destroyed    = 0;
+	i->r            = r;
+	return 0;
+}
+
+int si_open(si *i, sischeme *scheme)
+{
+	i->scheme = scheme;
+	return si_recover(i);
+}
+
+ss_rbtruncate(si_truncate,
+              si_nodefree(sscast(n, sinode, node), (sr*)arg, 0))
+
+int si_close(si *i)
+{
+	if (i->destroyed)
+		return 0;
+	int rcret = 0;
+	if (i->i.root)
+		si_truncate(i->i.root, i->r);
+	i->i.root = NULL;
+	sv_upsertfree(&i->u, i->r);
+	ss_buffree(&i->readbuf, i->r->a);
+	si_plannerfree(&i->p, i->r->a);
+	ss_mutexfree(&i->lock);
+	i->destroyed = 1;
+	return rcret;
+}
+
+ss_rbget(si_match,
+         sr_compare(scheme,
+                    sd_indexpage_min(&(sscast(n, sinode, node))->self.index,
+                                     sd_indexmin(&(sscast(n, sinode, node))->self.index)),
+                    sd_indexmin(&(sscast(n, sinode, node))->self.index)->sizemin,
+                                key, keysize))
+
+int si_insert(si *i, sinode *n)
+{
+	sdindexpage *min = sd_indexmin(&n->self.index);
+	ssrbnode *p = NULL;
+	int rc = si_match(&i->i, i->r->scheme,
+	                  sd_indexpage_min(&n->self.index, min),
+	                  min->sizemin, &p);
+	assert(! (rc == 0 && p));
+	ss_rbset(&i->i, p, rc, &n->node);
+	i->n++;
+	return 0;
+}
+
+int si_remove(si *i, sinode *n)
+{
+	ss_rbremove(&i->i, &n->node);
+	i->n--;
+	return 0;
+}
+
+int si_replace(si *i, sinode *o, sinode *n)
+{
+	ss_rbreplace(&i->i, &o->node, &n->node);
+	return 0;
+}
+
+int si_plan(si *i, siplan *plan)
+{
+	si_lock(i);
+	int rc = si_planner(&i->p, plan);
+	si_unlock(i);
+	return rc;
+}
+
+int si_execute(si *i, sdc *c, siplan *plan,
+               uint64_t vlsn,
+               uint64_t vlsn_lru)
+{
+	int rc = -1;
+	switch (plan->plan) {
+	case SI_CHECKPOINT:
+	case SI_BRANCH:
+	case SI_AGE:
+		rc = si_branch(i, c, plan, vlsn);
+		break;
+	case SI_LRU:
+	case SI_GC:
+	case SI_COMPACT:
+		rc = si_compact(i, c, plan, vlsn, vlsn_lru, NULL, 0);
+		break;
+	case SI_COMPACT_INDEX:
+		rc = si_compact_index(i, c, plan, vlsn, vlsn_lru);
+		break;
+	case SI_ANTICACHE:
+		rc = si_anticache(i, plan);
+		break;
+	case SI_SNAPSHOT:
+		rc = si_snapshot(i, plan);
+		break;
+	case SI_BACKUP:
+	case SI_BACKUPEND:
+		rc = si_backup(i, c, plan);
+		break;
+	case SI_SHUTDOWN:
+		rc = si_close(i);
+		break;
+	case SI_DROP:
+		rc = si_drop(i);
+		break;
+	}
+	/* garbage collect buffers */
+	sd_cgc(c, i->r, i->scheme->buf_gc_wm);
+	return rc;
 }
 #line 1 "sophia/index/si_compaction.c"
 
@@ -27954,6 +27955,7 @@ enum {
 	SEDB,
 	SEDBCURSOR,
 	SETX,
+	SEVIEW,
 	SECURSOR
 };
 
@@ -28380,8 +28382,9 @@ struct se {
 	ssspinlock  dblock;
 	solist      db;
 	solist      db_shutdown;
-	solist      dbcursor;
 	solist      cursor;
+	solist      viewdb;
+	solist      view;
 	solist      tx;
 	solist      req;
 	solist      reqactive;
@@ -28395,9 +28398,10 @@ struct se {
 	ssa         a_oom;
 	ssa         a;
 	ssa         a_db;
-	ssa         a_dbcursor;
 	ssa         a_document;
 	ssa         a_cursor;
+	ssa         a_viewdb;
+	ssa         a_view;
 	ssa         a_cachebranch;
 	ssa         a_cache;
 	ssa         a_confcursor;
@@ -28609,32 +28613,6 @@ int       se_dbv(sedb*, sedocument*, int, svv**);
 int       se_dbvprefix(sedb*, sedocument*, svv**);
 
 #endif
-#line 1 "sophia/environment/se_dbcursor.h"
-#ifndef SE_DBCURSOR_H_
-#define SE_DBCURSOR_H_
-
-/*
- * sophia database
- * sphia.org
- *
- * Copyright (c) Dmitry Simonenko
- * BSD License
-*/
-
-typedef struct sedbcursor sedbcursor;
-
-struct sedbcursor {
-	so o;
-	uint64_t txn_id;
-	int ready;
-	ssbuf list;
-	char *pos;
-	sedb *v;
-} sspacked;
-
-so *se_dbcursor_new(se*, uint64_t);
-
-#endif
 #line 1 "sophia/environment/se_tx.h"
 #ifndef SE_TX_H_
 #define SE_TX_H_
@@ -28658,6 +28636,59 @@ struct setx {
 };
 
 so *se_txnew(se*);
+
+#endif
+#line 1 "sophia/environment/se_viewdb.h"
+#ifndef SE_VIEWDB_H_
+#define SE_VIEWDB_H_
+
+/*
+ * sophia database
+ * sphia.org
+ *
+ * Copyright (c) Dmitry Simonenko
+ * BSD License
+*/
+
+typedef struct seviewdb seviewdb;
+
+struct seviewdb {
+	so        o;
+	uint64_t  txn_id;
+	int       ready;
+	ssbuf     list;
+	char     *pos;
+	sedb     *v;
+} sspacked;
+
+so *se_viewdb_new(se*, uint64_t);
+
+#endif
+#line 1 "sophia/environment/se_view.h"
+#ifndef SE_VIEW_H_
+#define SE_VIEW_H_
+
+/*
+ * sophia database
+ * sphia.org
+ *
+ * Copyright (c) Dmitry Simonenko
+ * BSD License
+*/
+
+typedef struct seview seview;
+
+struct seview {
+	so        o;
+	uint64_t  vlsn;
+	char     *name;
+	sx        t;
+	int       db_view_only;
+	solist    cursor;
+} sspacked;
+
+so  *se_viewnew(se*, uint64_t, char*);
+int  se_viewupdate(seview*);
 
 #endif
 #line 1 "sophia/environment/se_cursor.h"
@@ -28907,13 +28938,16 @@ se_destroy(so *o)
 	rc = so_listdestroy(&e->cursor);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
+	rc = so_listdestroy(&e->view);
+	if (ssunlikely(rc == -1))
+		rcret = -1;
+	rc = so_listdestroy(&e->viewdb);
+	if (ssunlikely(rc == -1))
+		rcret = -1;
 	rc = so_listdestroy(&e->tx);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
 	rc = so_listdestroy(&e->confcursor);
-	if (ssunlikely(rc == -1))
-		rcret = -1;
-	rc = so_listdestroy(&e->dbcursor);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
 	rc = so_listdestroy(&e->db);
@@ -29041,9 +29075,10 @@ so *se_new(void)
 	}
 	ss_aopen(&e->a, &ss_stda);
 	ss_aopen(&e->a_db, &ss_slaba, &e->pager, sizeof(sedb));
-	ss_aopen(&e->a_dbcursor, &ss_slaba, &e->pager, sizeof(sedbcursor));
 	ss_aopen(&e->a_document, &ss_slaba, &e->pager, sizeof(sedocument));
 	ss_aopen(&e->a_cursor, &ss_slaba, &e->pager, sizeof(secursor));
+	ss_aopen(&e->a_view, &ss_slaba, &e->pager, sizeof(seview));
+	ss_aopen(&e->a_viewdb, &ss_slaba, &e->pager, sizeof(seviewdb));
 	ss_aopen(&e->a_cachebranch, &ss_slaba, &e->pager, sizeof(sicachebranch));
 	ss_aopen(&e->a_cache, &ss_slaba, &e->pager, sizeof(sicache));
 	ss_aopen(&e->a_confcursor, &ss_slaba, &e->pager, sizeof(seconfcursor));
@@ -29060,8 +29095,9 @@ so *se_new(void)
 	}
 	so_listinit(&e->db);
 	so_listinit(&e->db_shutdown);
-	so_listinit(&e->dbcursor);
 	so_listinit(&e->cursor);
+	so_listinit(&e->viewdb);
+	so_listinit(&e->view);
 	so_listinit(&e->tx);
 	so_listinit(&e->confcursor);
 	so_listinit(&e->req);
@@ -29537,7 +29573,7 @@ se_confdb_set(srconf *c ssunused, srconfstmt *s)
 	/* get() */
 	if (s->op == SR_READ) {
 		uint64_t txn = sr_seq(&e->seq, SR_TSN);
-		so *c = se_dbcursor_new(e, txn);
+		so *c = se_viewdb_new(e, txn);
 		if (ssunlikely(c == NULL))
 			return -1;
 		*(void**)s->value = c;
@@ -29785,6 +29821,68 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 }
 
 static inline int
+se_confview_set(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	se *e = s->ptr;
+	char *name = s->value;
+	uint64_t lsn = sr_seq(&e->seq, SR_LSN);
+	/* create view object */
+	seview *view = (seview*)se_viewnew(e, lsn, name);
+	if (ssunlikely(view == NULL))
+		return -1;
+	so_listadd(&e->view, &view->o);
+	return 0;
+}
+
+static inline int
+se_confview_lsn(srconf *c, srconfstmt *s)
+{
+	int rc = se_confv(c, s);
+	if (ssunlikely(rc == -1))
+		return -1;
+	if (s->op != SR_WRITE)
+		return 0;
+	seview *view  = c->ptr;
+	se_viewupdate(view);
+	return 0;
+}
+
+static inline int
+se_confview_get(srconf *c, srconfstmt *s)
+{
+	/* get(view.name) */
+	se *e = s->ptr;
+	if (s->op != SR_READ) {
+		sr_error(&e->error, "%s", "bad operation");
+		return -1;
+	}
+	assert(c->ptr != NULL);
+	*(void**)s->value = c->ptr;
+	return 0;
+}
+
+static inline srconf*
+se_confview(se *e, seconfrt *rt ssunused, srconf **pc)
+{
+	srconf *view = NULL;
+	srconf *prev = NULL;
+	sslist *i;
+	ss_listforeach(&e->view.list, i)
+	{
+		seview *s = (seview*)sscast(i, so, link);
+		srconf *p = sr_C(NULL, pc, se_confview_lsn, "lsn", SS_U64, &s->vlsn, 0, s);
+		sr_C(&prev, pc, se_confview_get, s->name, SS_STRING, p, SR_NS, s);
+		if (view == NULL)
+			view = prev;
+	}
+	return sr_C(NULL, pc, se_confview_set, "view", SS_STRING,
+	            view, SR_NS, NULL);
+}
+
+
+static inline int
 se_confbackup_run(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
@@ -29817,9 +29915,10 @@ se_confdebug_oom(srconf *c, srconfstmt *s)
 
 	ss_aclose(&e->a);
 	ss_aclose(&e->a_db);
-	ss_aclose(&e->a_dbcursor);
 	ss_aclose(&e->a_document);
 	ss_aclose(&e->a_cursor);
+	ss_aclose(&e->a_viewdb);
+	ss_aclose(&e->a_view);
 	ss_aclose(&e->a_cachebranch);
 	ss_aclose(&e->a_cache);
 	ss_aclose(&e->a_confcursor);
@@ -29831,9 +29930,10 @@ se_confdebug_oom(srconf *c, srconfstmt *s)
 	ss_aopen(&e->a_oom, &ss_ooma, e->ei.oom);
 	e->a = e->a_oom;
 	e->a_db = e->a_oom;
-	e->a_dbcursor = e->a_oom;
 	e->a_document = e->a_oom;
 	e->a_cursor = e->a_oom;
+	e->a_viewdb = e->a_oom;
+	e->a_view = e->a_oom;
 	e->a_cachebranch = e->a_oom;
 	e->a_cache = e->a_oom;
 	e->a_confkv = e->a_oom;
@@ -29894,6 +29994,7 @@ se_confprepare(se *e, seconfrt *rt, srconf *c, int serialize)
 	srconf *perf       = se_confperformance(e, rt, &pc);
 	srconf *metric     = se_confmetric(e, rt, &pc);
 	srconf *log        = se_conflog(e, rt, &pc);
+	srconf *view       = se_confview(e, rt, &pc);
 	srconf *backup     = se_confbackup(e, rt, &pc);
 	srconf *db         = se_confdb(e, rt, &pc);
 	srconf *debug      = se_confdebug(e, rt, &pc);
@@ -29904,7 +30005,8 @@ se_confprepare(se *e, seconfrt *rt, srconf *c, int serialize)
 	scheduler->next  = perf;
 	perf->next       = metric;
 	metric->next     = log;
-	log->next        = backup;
+	log->next        = view;
+	view->next       = backup;
 	backup->next     = db;
 	if (! serialize)
 		db->next = debug;
@@ -31310,141 +31412,6 @@ int se_dbvprefix(sedb *db, sedocument *o, svv **v)
 		return -1;
 	return 0;
 }
-#line 1 "sophia/environment/se_dbcursor.c"
-
-/*
- * sophia database
- * sphia.org
- *
- * Copyright (c) Dmitry Simonenko
- * BSD License
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-static int
-se_dbcursor_destroy(so *o)
-{
-	sedbcursor *c = se_cast(o, sedbcursor*, SEDBCURSOR);
-	se *e = se_of(&c->o);
-	ss_buffree(&c->list, &e->a);
-	so_listdel(&e->dbcursor, &c->o);
-	se_mark_destroyed(&c->o);
-	ss_free(&e->a_dbcursor, c);
-	return 0;
-}
-
-static void*
-se_dbcursor_get(so *o, so *v ssunused)
-{
-	sedbcursor *c = se_cast(o, sedbcursor*, SEDBCURSOR);
-	if (c->ready) {
-		c->ready = 0;
-		return c->v;
-	}
-	if (ssunlikely(c->pos == NULL))
-		return NULL;
-	c->pos += sizeof(sedb**);
-	if (c->pos >= c->list.p) {
-		c->pos = NULL;
-		c->v = NULL;
-		return NULL;
-	}
-	c->v = *(sedb**)c->pos;
-	return c->v;
-}
-
-static soif sedbcursorif =
-{
-	.open         = NULL,
-	.destroy      = se_dbcursor_destroy,
-	.error        = NULL,
-	.document     = NULL,
-	.poll         = NULL,
-	.drop         = NULL,
-	.setstring    = NULL,
-	.setint       = NULL,
-	.getobject    = NULL,
-	.getstring    = NULL,
-	.getint       = NULL,
-	.set          = NULL,
-	.upsert       = NULL,
-	.del          = NULL,
-	.get          = se_dbcursor_get,
-	.begin        = NULL,
-	.prepare      = NULL,
-	.commit       = NULL,
-	.cursor       = NULL,
-};
-
-static inline int
-se_dbcursor_open(sedbcursor *c)
-{
-	se *e = se_of(&c->o);
-	int rc;
-	sslist *i;
-	ss_listforeach(&e->db.list, i) {
-		sedb *db = (sedb*)sscast(i, so, link);
-		int status = se_status(&db->status);
-		if (status != SE_ONLINE)
-			continue;
-		if (c->txn_id > db->txn_min) {
-			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
-			if (ssunlikely(rc == -1))
-				return -1;
-		}
-	}
-	ss_spinlock(&e->dblock);
-	ss_listforeach(&e->db_shutdown.list, i) {
-		sedb *db = (sedb*)sscast(i, so, link);
-		if (db->txn_min < c->txn_id && c->txn_id <= db->txn_max) {
-			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
-			if (ssunlikely(rc == -1))
-				return -1;
-		}
-	}
-	ss_spinunlock(&e->dblock);
-	if (ss_bufsize(&c->list) == 0)
-		return 0;
-	c->ready = 1;
-	c->pos = c->list.s;
-	c->v = *(sedb**)c->list.s;
-	return 0;
-}
-
-so *se_dbcursor_new(se *e, uint64_t txn_id)
-{
-	sedbcursor *c = ss_malloc(&e->a_dbcursor, sizeof(sedbcursor));
-	if (ssunlikely(c == NULL)) {
-		sr_oom(&e->error);
-		return NULL;
-	}
-	so_init(&c->o, &se_o[SEDBCURSOR], &sedbcursorif,
-	        &e->o, &e->o);
-	c->txn_id = txn_id;
-	c->v      = NULL;
-	c->pos    = NULL;
-	c->ready  = 0;
-	ss_bufinit(&c->list);
-	int rc = se_dbcursor_open(c);
-	if (ssunlikely(rc == -1)) {
-		so_destroy(&c->o);
-		sr_oom(&e->error);
-		return NULL;
-	}
-	so_listadd(&e->dbcursor, &c->o);
-	return &c->o;
-}
 #line 1 "sophia/environment/se_document.c"
 
 /*
@@ -31517,8 +31484,9 @@ se_document_setstring(so *o, const char *path, void *pointer, int size)
 	se *e = se_of(o);
 	if (ssunlikely(v->v.v))
 		return sr_error(&e->error, "%s", "document is read-only");
-
-	if (strcmp(path, "value") == 0) {
+	if (sslikely(strncmp(path, "key", 3)) == 0)
+		goto key_part;
+	if (sslikely(strcmp(path, "value")) == 0) {
 		const int valuesize_max = 1 << 21;
 		if (ssunlikely(size > valuesize_max)) {
 			sr_error(&e->error, "value is too big (%d limit)",
@@ -31560,6 +31528,7 @@ se_document_setstring(so *o, const char *path, void *pointer, int size)
 		v->async_arg = pointer;
 		return 0;
 	}
+key_part:;
 	/* document keypart */
 	sfv *fv = se_document_setpart(v, path, pointer, size);
 	if (ssunlikely(fv == NULL))
@@ -31571,7 +31540,9 @@ static void*
 se_document_getstring(so *o, const char *path, int *size)
 {
 	sedocument *v = se_cast(o, sedocument*, SEDOCUMENT);
-	if (strcmp(path, "value") == 0) {
+	if (sslikely(strncmp(path, "key", 3)) == 0)
+		goto key_part;
+	if (sslikely(strcmp(path, "value")) == 0) {
 		/* key document */
 		if (v->value) {
 			if (size)
@@ -31630,7 +31601,7 @@ se_document_getstring(so *o, const char *path, int *size)
 			*size = sv_size(&v->v);
 		return sv_pointer(&v->v);
 	}
-
+key_part:;
 	/* match key-part */
 	sedb *db = (sedb*)o->parent;
 	srkey *part = sr_schemefind(&db->scheme.scheme, (char*)path);
@@ -31889,6 +31860,7 @@ sotype se_o[] =
 	{ 0x34591111L, "database"          },
 	{ 0x63102654L, "database_cursor"   },
 	{ 0x13491FABL, "transaction"       },
+	{ 0x22FA0348L, "view"              },
 	{ 0x45ABCDFAL, "cursor"            }
 };
 #line 1 "sophia/environment/se_recover.c"
@@ -33706,6 +33678,304 @@ so *se_txnew(se *e)
 	se_dbbind(e);
 	so_listadd(&e->tx, &t->o);
 	return &t->o;
+}
+#line 1 "sophia/environment/se_view.c"
+
+/*
+ * sophia database
+ * sphia.org
+ *
+ * Copyright (c) Dmitry Simonenko
+ * BSD License
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+static int
+se_viewfree(seview *s)
+{
+	se *e = se_of(&s->o);
+	if (sslikely(! s->db_view_only))
+		sx_rollback(&s->t);
+	if (sslikely(s->name)) {
+		ss_free(&e->a, s->name);
+		s->name = NULL;
+	}
+	se_mark_destroyed(&s->o);
+	ss_free(&e->a_view, s);
+	return 0;
+}
+
+static int
+se_viewdestroy(so *o)
+{
+	seview *s = se_cast(o, seview*, SEVIEW);
+	se *e = se_of(o);
+	so_listdestroy(&s->cursor);
+	uint32_t id = s->t.id;
+	so_listdel(&e->view, &s->o);
+	se_dbunbind(e, id);
+	se_viewfree(s);
+	return 0;
+}
+
+static void*
+se_viewget(so *o, so *key)
+{
+	seview *s = se_cast(o, seview*, SEVIEW);
+	se *e = se_of(o);
+	sedocument *v = se_cast(key, sedocument*, SEDOCUMENT);
+	sedb *db = se_cast(key->parent, sedb*, SEDB);
+	if (s->db_view_only) {
+		sr_error(&e->error, "view '%s' is in db-cursor-only mode", s->name);
+		return NULL;
+	}
+	return se_dbread(db, v, &s->t, 0, NULL, SS_EQ);
+}
+
+static void*
+se_viewcursor(so *o)
+{
+	seview *s = se_cast(o, seview*, SEVIEW);
+	se *e = se_of(o);
+	if (s->db_view_only) {
+		sr_error(&e->error, "view '%s' is in db-view-only mode", s->name);
+		return NULL;
+	}
+	return se_cursornew(e, s->vlsn);
+}
+
+void *se_viewget_object(so *o, const char *path)
+{
+	seview *s = se_cast(o, seview*, SEVIEW);
+	se *e = se_of(o);
+	if (strcmp(path, "db") == 0)
+		return se_viewdb_new(e, s->t.id);
+	return NULL;
+}
+
+static int
+se_viewset_int(so *o, const char *path, int64_t v ssunused)
+{
+	seview *s = se_cast(o, seview*, SEVIEW);
+	if (strcmp(path, "db-view-only") == 0) {
+		if (s->db_view_only)
+			return -1;
+		sx_rollback(&s->t);
+		s->db_view_only = 1;
+		return 0;
+	}
+	return -1;
+}
+
+static soif seviewif =
+{
+	.open         = NULL,
+	.destroy      = se_viewdestroy,
+	.error        = NULL,
+	.document     = NULL,
+	.poll         = NULL,
+	.drop         = NULL,
+	.setstring    = NULL,
+	.setint       = se_viewset_int,
+	.getobject    = se_viewget_object,
+	.getstring    = NULL,
+	.getint       = NULL,
+	.set          = NULL,
+	.upsert       = NULL,
+	.del          = NULL,
+	.get          = se_viewget,
+	.begin        = NULL,
+	.prepare      = NULL,
+	.commit       = NULL,
+	.cursor       = se_viewcursor
+};
+
+so *se_viewnew(se *e, uint64_t vlsn, char *name)
+{
+	sslist *i;
+	ss_listforeach(&e->view.list, i) {
+		seview *s = (seview*)sscast(i, so, link);
+		if (ssunlikely(strcmp(s->name, name) == 0)) {
+			sr_error(&e->error, "view '%s' already exists", name);
+			return NULL;
+		}
+	}
+	seview *s = ss_malloc(&e->a_view, sizeof(seview));
+	if (ssunlikely(s == NULL)) {
+		sr_oom(&e->error);
+		return NULL;
+	}
+	so_init(&s->o, &se_o[SEVIEW], &seviewif, &e->o, &e->o);
+	so_listinit(&s->cursor);
+	s->vlsn = vlsn;
+	s->name = ss_strdup(&e->a, name);
+	if (ssunlikely(s->name == NULL)) {
+		ss_free(&e->a_view, s);
+		sr_oom(&e->error);
+		return NULL;
+	}
+	sx_begin(&e->xm, &s->t, SXRO, vlsn);
+	s->db_view_only = 0;
+	se_dbbind(e);
+	return &s->o;
+}
+
+int se_viewupdate(seview *s)
+{
+	se *e = se_of(&s->o);
+	uint32_t id = s->t.id;
+	if (! s->db_view_only) {
+		sx_rollback(&s->t);
+		sx_begin(&e->xm, &s->t, SXRO, s->vlsn);
+	}
+	s->t.id = id;
+	return 0;
+}
+#line 1 "sophia/environment/se_viewdb.c"
+
+/*
+ * sophia database
+ * sphia.org
+ *
+ * Copyright (c) Dmitry Simonenko
+ * BSD License
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+static int
+se_viewdb_destroy(so *o)
+{
+	seviewdb *c = se_cast(o, seviewdb*, SEDBCURSOR);
+	se *e = se_of(&c->o);
+	ss_buffree(&c->list, &e->a);
+	so_listdel(&e->viewdb, &c->o);
+	se_mark_destroyed(&c->o);
+	ss_free(&e->a_viewdb, c);
+	return 0;
+}
+
+static void*
+se_viewdb_get(so *o, so *v ssunused)
+{
+	seviewdb *c = se_cast(o, seviewdb*, SEDBCURSOR);
+	if (c->ready) {
+		c->ready = 0;
+		return c->v;
+	}
+	if (ssunlikely(c->pos == NULL))
+		return NULL;
+	c->pos += sizeof(sedb**);
+	if (c->pos >= c->list.p) {
+		c->pos = NULL;
+		c->v = NULL;
+		return NULL;
+	}
+	c->v = *(sedb**)c->pos;
+	return c->v;
+}
+
+static soif seviewdbif =
+{
+	.open         = NULL,
+	.destroy      = se_viewdb_destroy,
+	.error        = NULL,
+	.document     = NULL,
+	.poll         = NULL,
+	.drop         = NULL,
+	.setstring    = NULL,
+	.setint       = NULL,
+	.getobject    = NULL,
+	.getstring    = NULL,
+	.getint       = NULL,
+	.set          = NULL,
+	.upsert       = NULL,
+	.del          = NULL,
+	.get          = se_viewdb_get,
+	.begin        = NULL,
+	.prepare      = NULL,
+	.commit       = NULL,
+	.cursor       = NULL,
+};
+
+static inline int
+se_viewdb_open(seviewdb *c)
+{
+	se *e = se_of(&c->o);
+	int rc;
+	sslist *i;
+	ss_listforeach(&e->db.list, i) {
+		sedb *db = (sedb*)sscast(i, so, link);
+		int status = se_status(&db->status);
+		if (status != SE_ONLINE)
+			continue;
+		if (c->txn_id > db->txn_min) {
+			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
+			if (ssunlikely(rc == -1))
+				return -1;
+		}
+	}
+	ss_spinlock(&e->dblock);
+	ss_listforeach(&e->db_shutdown.list, i) {
+		sedb *db = (sedb*)sscast(i, so, link);
+		if (db->txn_min < c->txn_id && c->txn_id <= db->txn_max) {
+			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
+			if (ssunlikely(rc == -1))
+				return -1;
+		}
+	}
+	ss_spinunlock(&e->dblock);
+	if (ss_bufsize(&c->list) == 0)
+		return 0;
+	c->ready = 1;
+	c->pos = c->list.s;
+	c->v = *(sedb**)c->list.s;
+	return 0;
+}
+
+so *se_viewdb_new(se *e, uint64_t txn_id)
+{
+	seviewdb *c = ss_malloc(&e->a_viewdb, sizeof(seviewdb));
+	if (ssunlikely(c == NULL)) {
+		sr_oom(&e->error);
+		return NULL;
+	}
+	so_init(&c->o, &se_o[SEDBCURSOR], &seviewdbif,
+	        &e->o, &e->o);
+	c->txn_id = txn_id;
+	c->v      = NULL;
+	c->pos    = NULL;
+	c->ready  = 0;
+	ss_bufinit(&c->list);
+	int rc = se_viewdb_open(c);
+	if (ssunlikely(rc == -1)) {
+		so_destroy(&c->o);
+		sr_oom(&e->error);
+		return NULL;
+	}
+	so_listadd(&e->viewdb, &c->o);
+	return &c->o;
 }
 #line 1 "sophia/environment/se_worker.c"
 

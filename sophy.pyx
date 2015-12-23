@@ -99,7 +99,7 @@ cdef class Sophia(object):
         void *db
 
     def __cinit__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                  compression=None, compression_key=None):
+                  compression=None, compression_key=None, no_open=False):
         self.name = name
         self.path = path
         self.config = {}
@@ -110,7 +110,7 @@ cdef class Sophia(object):
         self.env = sp_env()
 
     def __init__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                 compression=None, compression_key=None):
+                 compression=None, compression_key=None, auto_open=False):
         if format is not None:
             self.format = format
         if mmap is not None:
@@ -121,12 +121,18 @@ cdef class Sophia(object):
             self.compression = compression
         if compression_key is not None:
             self.compression_key = compression_key
+        if auto_open:
+            self.open()
 
     def __dealloc__(self):
         if self.db:
             sp_destroy(self.db)
         if self.env:
             sp_destroy(self.env)
+
+    cdef inline _ensure_open(self):
+        if not self.is_open:
+            raise IOError('Database must be opened before accessing.')
 
     cpdef set_option(self, key, value):
         cdef:
@@ -296,6 +302,9 @@ cdef class Sophia(object):
         self.is_open = False
         return True
 
+    cpdef view(self, name):
+        return View(self, name)
+
     cpdef transaction(self):
         return Transaction(self)
 
@@ -398,7 +407,7 @@ cdef class Cursor(object):
         void *handle
 
     def __cinit__(self, Sophia sophia, order='>=', key=None, prefix=None,
-                  keys=True, values=True):
+                  keys=True, values=True, **_):
         self.sophia = sophia
         self.order = encode(order)
         self.keys = keys
@@ -421,7 +430,7 @@ cdef class Cursor(object):
         if self.cursor:
             sp_destroy(self.cursor)
         self.cursor = sp_cursor(self.sophia.env)
-        self.handle = sp_document(self.sophia.db)
+        self.handle = self.get_handle()
         if self.key:
             PyString_AsStringAndSize(self.key, &kbuf, &klen)
             sp_setstring(self.handle, 'key', kbuf, klen + 1)
@@ -433,6 +442,9 @@ cdef class Cursor(object):
                 <char *>self.prefix,
                 (sizeof(char) * len(self.prefix)))
         return self
+
+    cdef void *get_handle(self):
+        return sp_document(self.sophia.db)
 
     def __next__(self):
         self.handle = sp_get(self.cursor, self.handle)
@@ -450,18 +462,79 @@ cdef class Cursor(object):
             return _getstring(self.handle, 'value')
 
 
-cdef class _BaseTransaction(object):
+cdef class _BaseDBObject(object):
     cdef:
         public Sophia sophia
         _Index idx
         void *handle
 
-    def __cinit__(self, Sophia sophia):
+    def __cinit__(self, Sophia sophia, *_):
         self.sophia = sophia
 
     cdef void *create_handle(self):
         raise NotImplementedError
 
+    def __getitem__(self, key):
+        return self.idx.get(key)
+
+    def __setitem__(self, key, value):
+        self.idx.set(key, value)
+
+    def __delitem__(self, key):
+        self.idx.delete(key)
+
+    def __contains__(self, key):
+        return self.idx.exists(key)
+
+
+cdef class View(_BaseDBObject):
+    cdef:
+        bint is_open
+        bytes name
+
+    def __init__(self, Sophia sophia, name, auto_open=True):
+        self.name = encode(name)
+        self.is_open = False
+        if auto_open:
+            self.open()
+
+    def __dealloc__(self):
+        if self.handle:
+            sp_destroy(self.handle)
+
+    cpdef bint open(self):
+        if self.is_open:
+            return False
+
+        self.handle = self.create_handle()
+        if not self.handle:
+            raise MemoryError('Unable to create view.')
+
+        self.idx = self.sophia._create_index(target=self)
+        self.is_open = True
+        return True
+
+    cpdef bint close(self):
+        if not self.is_open:
+            return False
+
+        sp_destroy(self.handle)
+        self.handle = <void *>0
+        self.is_open = False
+        return True
+
+    cdef void *create_handle(self):
+        sp_setstring(self.sophia.env, 'view', <char *>self.name, 0)
+        return sp_getobject(self.sophia.env, encode('view.%s' % self.name))
+
+    def __setitem__(self, key, value):
+        raise ValueError('Views are read-only.')
+
+    def __delitem__(self, key):
+        raise ValueError('Views are read-only.')
+
+
+cdef class _BaseTransaction(_BaseDBObject):
     def __enter__(self):
         self.handle = self.create_handle()
         self.idx = self.sophia._create_index(target=self)
@@ -489,18 +562,6 @@ cdef class _BaseTransaction(object):
 
     cdef check(self, int rc):
         pass
-
-    def __getitem__(self, key):
-        return self.idx.get(key)
-
-    def __setitem__(self, key, value):
-        self.idx.set(key, value)
-
-    def __delitem__(self, key):
-        self.idx.delete(key)
-
-    def __contains__(self, key):
-        return self.idx.exists(key)
 
     def __call__(self, fn):
         def inner(*args, **kwargs):
@@ -531,7 +592,7 @@ cdef class Transaction(_BaseTransaction):
 
 cdef class _Index(object):
     cdef:
-        _BaseTransaction target
+        _BaseDBObject target
         bytes key
         public Sophia sophia
         void *db

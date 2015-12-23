@@ -294,6 +294,37 @@ class TestSophia(BaseTestCase):
             ('ee', 'eee'),
             ('dd', 'ddd')])
 
+    def test_view(self):
+        self.db.update(k1='v1', k2='v2', k3='v3')
+
+        v = self.db.view('view1')
+        self.assertEqual(v['k1'], 'v1')
+        self.assertEqual(v['k2'], 'v2')
+        self.assertEqual(v['k3'], 'v3')
+
+        self.db['k1'] = 'v1-e'
+        self.db['k3'] = 'v3-e'
+
+        v2 = self.db.view('view2')
+        self.db['k4'] = 'v4'
+
+        self.assertEqual(self.db['k1'], 'v1-e')
+        self.assertEqual(self.db['k3'], 'v3-e')
+        self.assertEqual(self.db['k4'], 'v4')
+
+        self.assertEqual(v['k1'], 'v1')
+        self.assertEqual(v['k2'], 'v2')
+        self.assertEqual(v['k3'], 'v3')
+        self.assertRaises(KeyError, lambda: v['k4'])
+
+        self.assertEqual(v2['k1'], 'v1-e')
+        self.assertEqual(v2['k2'], 'v2')
+        self.assertEqual(v2['k3'], 'v3-e')
+        self.assertRaises(KeyError, lambda: v2['k4'])
+
+        v.close()
+        v2.close()
+
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)
