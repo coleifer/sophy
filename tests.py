@@ -334,5 +334,31 @@ class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
             ('abb', '4')])
 
 
+class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
+    def create_db(self):
+        return Sophia(
+            'test-triple',
+            path=TEST_DIR,
+            index_type=('string', 'string', 'string'))
+
+    def get_keys(self):
+        return (
+            ('foo', 'bar', 'baz'),
+            ('foo', 'bar', 'nug'),
+            ('foo', 'nug', 'baz'),
+            ('nug', 'bar', 'baz'))
+
+    def set_key_vars(self):
+        self.r1 = ('cc', 'bb', 'aa')
+        self.r2 = ('cc', 'bb', 'bb')
+        self.r3 = ('cc', 'bb', 'bbb')
+        self.r4 = ('cc', 'cc', 'aa')
+        self.r5 = ('dd', 'cc', 'aa')
+        self.r6 = ('ee', 'aa', 'bb')
+        self.r7 = ('ee', 'zz', 'aa')
+        self.r3_1 = ('cc', 'bc', 'bb')
+        self.r5_1 = ('de', 'ad', 'da')
+
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)

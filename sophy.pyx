@@ -7,11 +7,6 @@ from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
 
-cdef extern from "Python.h":
-    cdef void Py_Initialize()
-    cdef int Py_IsInitialized()
-
-
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
     cdef void *sp_document(void *)
@@ -95,11 +90,13 @@ cdef class Sophia(object):
         bytes b_name
         bytes b_path
         dict config
+        tuple index_type
         void *env
         void *db
 
     def __cinit__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                  compression=None, compression_key=None, no_open=False):
+                  compression=None, compression_key=None, no_open=False,
+                  index_type=None):
         self.name = name
         self.path = path
         self.config = {}
@@ -110,7 +107,8 @@ cdef class Sophia(object):
         self.env = sp_env()
 
     def __init__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                 compression=None, compression_key=None, auto_open=False):
+                 compression=None, compression_key=None, auto_open=False,
+                 index_type=None):
         if format is not None:
             self.format = format
         if mmap is not None:
@@ -121,6 +119,14 @@ cdef class Sophia(object):
             self.compression = compression
         if compression_key is not None:
             self.compression_key = compression_key
+
+        if not index_type:
+            self.index_type = ('string',)
+        elif isinstance(index_type, basestring):
+            self.index_type = (index_type,)
+        else:
+            self.index_type = tuple(index_type)
+
         if auto_open:
             self.open()
 
@@ -129,10 +135,6 @@ cdef class Sophia(object):
             sp_destroy(self.db)
         if self.env:
             sp_destroy(self.env)
-
-    cdef inline _ensure_open(self):
-        if not self.is_open:
-            raise IOError('Database must be opened before accessing.')
 
     cpdef set_option(self, key, value):
         cdef:
@@ -289,7 +291,19 @@ cdef class Sophia(object):
         return True
 
     cdef _Index _create_index(self, target=None):
-        return _Index(self, target=target)
+        if len(self.index_type) == 1:
+            try:
+                IndexType = INDEX_TYPE_MAP[self.index_type[0]]
+            except KeyError:
+                raise ValueError('Unrecognized index type, must be one of: %s'
+                                 % ', '.join(sorted(INDEX_TYPE_MAP)))
+            else:
+                return IndexType(self, target=target)
+        else:
+            return _MultiIndex(
+                self,
+                target=target,
+                index_types=self.index_type)
 
     cpdef bint close(self):
         if not self.is_open:
@@ -397,12 +411,11 @@ cdef class Cursor(object):
     cdef:
         public Sophia sophia
         readonly bytes order
-        readonly bytes key
         readonly bytes prefix
         bint keys
         bint values
-        bytes idx_key
-        _Index idx
+        object key
+        tuple idx_keys
         void *cursor
         void *handle
 
@@ -412,9 +425,9 @@ cdef class Cursor(object):
         self.order = encode(order)
         self.keys = keys
         self.values = values
-        self.idx_key = self.sophia.idx.key
+        self.idx_keys = self.sophia.idx.keys
         if key:
-            self.key = encode(key)
+            self.key = key
         if prefix:
             self.prefix = encode(prefix)
 
@@ -432,8 +445,7 @@ cdef class Cursor(object):
         self.cursor = sp_cursor(self.sophia.env)
         self.handle = self.get_handle()
         if self.key:
-            PyString_AsStringAndSize(self.key, &kbuf, &klen)
-            sp_setstring(self.handle, 'key', kbuf, klen + 1)
+            self.sophia.idx.set_key(self.handle, self.key)
         sp_setstring(self.handle, 'order', <char *>self.order, 0)
         if self.prefix:
             sp_setstring(
@@ -453,11 +465,14 @@ cdef class Cursor(object):
             self.cursor = NULL
             raise StopIteration
 
+        cdef bkey
         if self.keys and self.values:
-            return (_getstring(self.handle, self.idx_key),
+            bkey = self.sophia.idx.extract_key(self.handle)
+            return (bkey,
                     _getstring(self.handle, 'value'))
         elif self.keys:
-            return _getstring(self.handle, self.idx_key)
+            bkey = self.sophia.idx.extract_key(self.handle)
+            return bkey
         elif self.values:
             return _getstring(self.handle, 'value')
 
@@ -593,18 +608,25 @@ cdef class Transaction(_BaseTransaction):
 cdef class _Index(object):
     cdef:
         _BaseDBObject target
+        bytes b_path, b_type
         bytes key
         public Sophia sophia
+        tuple keys
         void *db
         void *env
         void *handle
 
-    def __cinit__(self, Sophia sophia, key='key', target=None, *a):
+    index_type = 'string'
+
+    def __cinit__(self, Sophia sophia, key='key', target=None, **_):
         self.sophia = sophia
         self.key = encode(key)
+        self.keys = (self.key,)
         self.db = sophia.db
         self.env = sophia.env
         self.target = target
+        self.b_path = encode('db.%s.index.%s' % (self.sophia.b_name, self.key))
+        self.b_type = encode(self.index_type)
         if self.target:
             self.handle = self.target.handle
         else:
@@ -613,8 +635,8 @@ cdef class _Index(object):
     cdef configure(self):
         sp_setstring(
             self.env,
-            'db.%s.index.%s' % (self.sophia.b_name, self.key),
-            'string',
+            <char *>self.b_path,
+            <char *>self.b_type,
             0)
 
     cdef set(self, key, value):
@@ -624,21 +646,29 @@ cdef class _Index(object):
             Py_ssize_t klen, vlen
             void *obj = sp_document(self.db)
 
-        PyString_AsStringAndSize(key, &kbuf, &klen)
-        PyString_AsStringAndSize(value, &vbuf, &vlen)
+        self.set_key(obj, key)
 
-        sp_setstring(obj, 'key', kbuf, klen + 1)
+        PyString_AsStringAndSize(value, &vbuf, &vlen)
         sp_setstring(obj, 'value', vbuf, vlen + 1)
+
         _check(self.env, sp_set(self.handle, obj))
 
-    cdef get(self, key):
+    cdef set_key(self, void *obj, key):
         cdef:
             char *kbuf
             Py_ssize_t klen
-            void *obj = sp_document(self.db)
 
         PyString_AsStringAndSize(key, &kbuf, &klen)
-        sp_setstring(obj, 'key', kbuf, klen + 1)
+        sp_setstring(obj, <char *>self.key, kbuf, klen + 1)
+
+    cdef extract_key(self, void *obj):
+        return _getstring(obj, self.key)
+
+    cdef get(self, key):
+        cdef:
+            void *obj = sp_document(self.db)
+
+        self.set_key(obj, key)
 
         obj = sp_get(self.handle, obj)
         if not obj:
@@ -648,24 +678,98 @@ cdef class _Index(object):
 
     cdef delete(self, key):
         cdef:
-            char *kbuf
-            Py_ssize_t klen
             void *obj = sp_document(self.db)
 
-        PyString_AsStringAndSize(key, &kbuf, &klen)
-        sp_setstring(obj, 'key', kbuf, klen + 1)
+        self.set_key(obj, key)
         _check(self.env, sp_delete(self.handle, obj))
 
     cdef exists(self, key):
         cdef:
-            char *kbuf
-            Py_ssize_t klen
             void *obj = sp_document(self.db)
 
-        PyString_AsStringAndSize(key, &kbuf, &klen)
-        sp_setstring(obj, 'key', kbuf, klen + 1)
+        self.set_key(obj, key)
 
         obj = sp_get(self.handle, obj)
         if not obj:
             return False
         return True
+
+
+cdef class _MultiIndex(_Index):
+    cdef:
+        tuple indexes
+
+    def __init__(self, Sophia sophia, key='key', target=None, index_types=None,
+                  *a):
+        if not index_types:
+            raise ValueError('index_types is a required parameter.')
+
+        self.initialize_indexes(index_types)
+
+    cdef initialize_indexes(self, tuple index_types):
+        cdef:
+            bytes bkey = encode('key')
+            bytes suffixes = encode(' bcdefgh')
+            _Index index
+            int i
+            list accum = []
+
+        for i, subindex in enumerate(index_types):
+            try:
+                IndexType = INDEX_TYPE_MAP[subindex]
+            except KeyError:
+                raise ValueError('Unrecognized index type, must be one of: %s'
+                                 % ', '.join(sorted(INDEX_TYPE_MAP)))
+            if i > 0:
+                bkey = encode('key_%s' % suffixes[i])
+
+            accum.append(IndexType(self.sophia, key=bkey, target=self.target))
+
+        self.indexes = tuple(accum)
+        self.keys = tuple([index.key for index in accum])
+
+    cdef configure(self):
+        cdef:
+            bytes db_idx_path = encode('db.%s.index' % self.sophia.b_name)
+            _Index index
+            bindex_type
+
+        for index in self.indexes[1:]:
+            sp_setstring(
+                self.env,
+                <char *>db_idx_path,
+                <char *>index.key,
+                0)
+
+        for index in self.indexes:
+            sp_setstring(
+                self.env,
+                <char *>index.b_path,
+                <char *>index.b_type,
+                0)
+
+    cdef set_key(self, void *obj, key):
+        cdef:
+            _Index subindex
+
+        for subindex, key_part in zip(self.indexes, key):
+            subindex.set_key(obj, key_part)
+
+    cdef extract_key(self, void *obj):
+        cdef:
+            bytes bkey
+            _Index subindex
+            list result = []
+
+        for subindex in self.indexes:
+            bkey = subindex.extract_key(obj)
+            result.append(bkey)
+
+        return tuple(result)
+
+
+cdef dict INDEX_TYPE_MAP = {
+    'string': _Index,
+}
+
+"""ADD: # cython: profile=True to top of file to use with cProfile."""

@@ -21,7 +21,7 @@ library_source = 'src/sophia.c'
 
 sophy = Extension(
     'sophy',
-    #extra_compile_args=['-g'],
+    #extra_compile_args=['-g', '-O0'],
     #extra_link_args=['-g'],
     sources=[python_source, library_source])
 
