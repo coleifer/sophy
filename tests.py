@@ -272,6 +272,40 @@ class BaseSophiaTestMethods(object):
         self.db.update(dict(zip(
             self.get_keys(),
             ('v1', 'v2', 'v3', 'v4'))))
+        v = self.db.view('v1')
+
+        # Make some changes.
+        self.db[self.k1] = 'v1-e'
+        self.db[self.k3] = 'v3-e'
+        del self.db[self.k4]
+
+        # Iterate through the view.
+        view_items = list(v)
+        self.assertEqual(
+            list(v),
+            list(zip(self.get_keys(), ('v1', 'v2', 'v3', 'v4'))))
+
+        self.assertEqual(list(self.db), [
+            (self.k1, 'v1-e'),
+            (self.k2, 'v2'),
+            (self.k3, 'v3-e')])
+
+        # Do a little slicing to make sure.
+        self.assertEqual(list(v[self.k1:self.k2]), [
+            (self.k1, 'v1'),
+            (self.k2, 'v2')])
+        self.assertEqual(list(v[self.k2:self.k1]), [
+            (self.k2, 'v2'),
+            (self.k1, 'v1')])
+        self.assertEqual(list(v[:self.k2]), [
+            (self.k1, 'v1'),
+            (self.k2, 'v2')])
+        self.assertEqual(list(v[self.k2::True]), [
+            (self.k4, 'v4'),
+            (self.k3, 'v3'),
+            (self.k2, 'v2')])
+
+        v.close()
 
 
 class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):

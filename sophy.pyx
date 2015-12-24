@@ -5,6 +5,8 @@ from libc.stdint cimport int64_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
+from functools import wraps
+
 
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
@@ -245,9 +247,6 @@ cdef class _BaseDBObject(_SophiaObject):
     def __cinit__(self, Sophia sophia, *_):
         self.sophia = sophia
 
-    cdef void *_create_handle(self):
-        raise NotImplementedError
-
     cpdef bint open(self):
         if self.handle:
             return False
@@ -265,8 +264,25 @@ cdef class _BaseDBObject(_SophiaObject):
         self.destroy()
         return True
 
+    cdef void *_create_handle(self):
+        raise NotImplementedError
+
     cdef _Index _get_index(self):
         raise NotImplementedError
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __call__(self, fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            with self:
+                return fn(*args, **kwargs)
+        return wrapper
 
     def __getitem__(self, key):
         if isinstance(key, slice):
@@ -426,7 +442,7 @@ cdef class Database(_BaseDBObject):
         return Cursor(
             sophia=self.sophia,
             db=self,
-            target=self,
+            target=self.sophia,
             order=order,
             key=key,
             prefix=prefix,
@@ -525,22 +541,6 @@ cdef class Transaction(_BaseDBObject):
     cdef _Index _get_index(self):
         return self.db.index
 
-    cdef check(self, int rc):
-        try:
-            _check(self.sophia.handle, rc)
-        except:
-            raise
-        else:
-            if rc == 1:
-                raise Exception('transaction was rolled back by another '
-                                'concurrent transaction.')
-            elif rc == 2:
-                raise Exception('transaction is not finished, waiting for a '
-                                'concurrent transaction to finish.')
-    def __enter__(self):
-        self.open()
-        return self
-
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.rollback(False)
@@ -552,7 +552,14 @@ cdef class Transaction(_BaseDBObject):
                 raise
 
     cpdef commit(self, begin=True):
-        self.check(sp_commit(self.handle))
+        cdef int rc = sp_commit(self.handle)
+        _check(self.sophia.handle, rc)
+        if rc == 1:
+            raise Exception('transaction was rolled back by another '
+                            'concurrent transaction.')
+        elif rc == 2:
+            raise Exception('transaction is not finished, waiting for a '
+                            'concurrent transaction to finish.')
         self.handle = <void *>0
         if begin:
             self.open()
@@ -562,18 +569,12 @@ cdef class Transaction(_BaseDBObject):
         if begin:
             self.open()
 
-    def __call__(self, fn):
-        def inner(*args, **kwargs):
-            with self:
-                return fn(*args, **kwargs)
-        return inner
-
 
 cdef class Cursor(_SophiaObject):
     cdef:
         Sophia sophia
         Database db
-        _BaseDBObject target
+        _SophiaObject target
         readonly bytes order
         readonly bytes prefix
         readonly bint keys
@@ -582,8 +583,8 @@ cdef class Cursor(_SophiaObject):
         tuple indexes
         void *current_item
 
-    def __cinit__(self, Sophia sophia, Database db, _BaseDBObject target, order='>=',
-                  key=None, prefix=None, keys=True, values=True):
+    def __cinit__(self, Sophia sophia, Database db, _SophiaObject target,
+                  order='>=', key=None, prefix=None, keys=True, values=True):
         self.sophia = sophia
         self.db = db
         self.target = target
@@ -595,7 +596,7 @@ cdef class Cursor(_SophiaObject):
         if prefix:
             self.prefix = encode(prefix)
 
-        self.indexes = self.target.index.keys
+        self.indexes = self.db.index.keys
         self.current_item = <void *>0
 
     def __dealloc__(self):
@@ -612,7 +613,7 @@ cdef class Cursor(_SophiaObject):
 
         if self.handle:
             self.destroy()
-        self.handle = sp_cursor(self.sophia.handle)
+        self.handle = sp_cursor(self.target.handle)
         self.current_item = sp_document(self.db.handle)
         if self.key:
             self.db.index.set_key(self.current_item, self.key)
