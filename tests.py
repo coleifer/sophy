@@ -14,22 +14,24 @@ class BaseTestCase(unittest.TestCase):
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
+        self.sophia = Sophia(TEST_DIR)
+        self.sophia.open()
         self.db = self.create_db()
         self.db.open()
 
     def tearDown(self):
-        if self.db:
-            self.db.close()
+        self.db.close()
+        self.sophia.close()
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
 
 class TestConfiguration(BaseTestCase):
     def create_db(self):
-        return Sophia('test-kv', path=TEST_DIR)
+        return self.sophia.database('test-kv')
 
     def test_version(self):
-        v = self.db.version
+        v = self.sophia.version
         self.assertEqual(v, '2.1.1')
 
 
@@ -266,10 +268,15 @@ class BaseSophiaTestMethods(object):
         v.close()
         v2.close()
 
+    def test_iter_view(self):
+        self.db.update(dict(zip(
+            self.get_keys(),
+            ('v1', 'v2', 'v3', 'v4'))))
+
 
 class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
     def create_db(self):
-        return Sophia('test-kv', path=TEST_DIR)
+        return self.sophia.database('test-kv')
 
     def get_keys(self):
         return ('k1', 'k2', 'k3', 'k4')
@@ -334,9 +341,10 @@ class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
             ('abb', '4')])
 
 
-class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
+#class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
+class Foo2:
     def create_db(self):
-        return Sophia('test-kvi', path=TEST_DIR, index_type='u32')
+        return self.sophia.database('test-kvi', index_type='u32')
 
     def get_keys(self):
         return (
@@ -358,11 +366,11 @@ class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
         self.r5_1 = 15
 
 
-class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
+#class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
+class Foo:
     def create_db(self):
-        return Sophia(
-            'test-triple',
-            path=TEST_DIR,
+        return self.sophia.database(
+            'test-3',
             index_type=('string', 'string', 'string'))
 
     def get_keys(self):

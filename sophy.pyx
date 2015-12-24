@@ -62,196 +62,56 @@ cdef inline _check(void *env, int rc):
 
 def _sophia_property(propname, string=True, readonly=False):
     def _getter(self):
-        return self.get_option(propname, string)
+        return self.config.get_option(propname, string)
     if readonly:
         return property(_getter)
     else:
         def _setter(self, value):
-            self.set_option(propname, value)
+            self.config.set_option(propname, value)
         return property(_getter, _setter)
 
-def _db_property(propname, string=True, readonly=False):
+def _sophia_method(propname):
+    def _method(self):
+        self.config.set_option(propname, 0)
+    return _method
+
+def _db_property(prop, string=True, readonly=False):
     def _getter(self):
-        return self.get_option('db.%s.%s' % (self.name, propname), string)
+        return self.config.get_option('db.%s.%s' % (self.name, prop), string)
     if readonly:
         return property(_getter)
     else:
         def _setter(self, value):
-            self.set_option('db.%s.%s' % (self.name, propname), value)
+            self.config.set_option('db.%s.%s' % (self.name, prop), value)
         return property(_getter, _setter)
 
 
-cdef class Sophia(object):
+cdef class Configuration(object):
     cdef:
-        readonly object name
-        readonly object path
-        _Index idx
-        bint is_open
-        bytes b_name
-        bytes b_path
-        dict config
-        tuple index_type
-        void *env
-        void *db
+        dict _config
+        Sophia sophia
+        void *handle
 
-    def __cinit__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                  compression=None, compression_key=None, no_open=False,
-                  index_type=None):
-        self.name = name
-        self.path = path
-        self.config = {}
-
-        self.b_name = encode(name)
-        self.b_path = encode(path)
-
-        self.env = sp_env()
-
-    def __init__(self, name, path='sophia', format=None, mmap=None, sync=None,
-                 compression=None, compression_key=None, auto_open=False,
-                 index_type=None):
-        if format is not None:
-            self.format = format
-        if mmap is not None:
-            self.mmap = mmap
-        if sync is not None:
-            self.sync = sync
-        if compression is not None:
-            self.compression = compression
-        if compression_key is not None:
-            self.compression_key = compression_key
-
-        if not index_type:
-            self.index_type = ('string',)
-        elif isinstance(index_type, basestring):
-            self.index_type = (index_type,)
-        else:
-            self.index_type = tuple(index_type)
-
-        if auto_open:
-            self.open()
-
-    def __dealloc__(self):
-        if self.db:
-            sp_destroy(self.db)
-        if self.env:
-            sp_destroy(self.env)
+    def __cinit__(self, Sophia sophia):
+        self._config = {}
+        self.sophia = sophia
 
     cpdef set_option(self, key, value):
-        cdef:
-            bytes bkey
-            int rc
-
-        self.config[key] = value
-        if self.is_open:
-            self._config(key, value)
+        self._config[key] = value
+        if self.sophia.is_open:
+            self.apply_config(key, value)
 
     cpdef get_option(self, key, string=True):
         if string:
-            return _getstring(self.env, key)
+            return _getstring(self.sophia.handle, key)
         else:
             bkey = encode(key)
-            return sp_getint(self.env, <const char *>bkey)
+            return sp_getint(self.sophia.handle, <const char *>bkey)
 
     cpdef clear_option(self, key):
-        del self.config[key]
+        del self._config[key]
 
-    # Database properties.
-    compression = _db_property('compression')
-    compression_key = _db_property('compression_key', False)
-    database_id = _db_property('id', False)
-    format = _db_property('format')
-    mmap = _db_property('mmap', False)
-    sync = _db_property('sync', False)
-    status = _db_property('status', readonly=True)
-
-    # Database index properties.
-    index_branch_avg = _db_property('index.branch_avg', False, True)
-    index_branch_count = _db_property('index.branch_count', False, True)
-    index_branch_max = _db_property('index.branch_max', False, True)
-    index_count = _db_property('index.count', False, True)
-    index_count_dup = _db_property('index.count_dup', False, True)
-    index_memory_used = _db_property('index.memory_used', False, True)
-    index_node_count = _db_property('index.node_count', False, True)
-    index_node_size = _db_property('index.node_size', False, True)
-    index_node_origin_size = _db_property(
-        'index.node_origin_size',
-        False,
-        True)
-    index_page_count = _db_property('index.page_count', False, True)
-    index_read_cache = _db_property('index.read_cache', False, True)
-    index_read_disk = _db_property('index.read_disk', False, True)
-
-    # Memory control properties.
-    memory_limit = _sophia_property('memory.limit', False)
-    memory_pager_page_size = _sophia_property(
-        'memory.pager_page_size',
-        False,
-        True)
-    memory_pager_pools = _sophia_property('memory.pager_pools', False, True)
-    memory_pager_pool_size = _sophia_property(
-        'memory.pager_pool_size',
-        False,
-        True)
-    memory_used = _sophia_property('memory.used', False, True)
-
-    # Compaction properties.
-    compaction_node_size = _sophia_property('compaction.node_size', False)
-    compaction_page_size = _sophia_property('compaction.page_size', False)
-    compaction_page_checksum = _sophia_property(
-        'compaction.page_checksum',
-        False)
-    compaction_redzone = _sophia_property('compaction.redzone', False)
-    compaction_redzone_mode = _sophia_property(
-        'compaction.redzone.mode',
-        False)
-    compaction_redzone_async = _sophia_property(
-        'compaction.redzone.async',
-        False)
-
-    # Scheduler properties.
-    scheduler_threads = _sophia_property('scheduler.threads', False)
-    scheduler_checkpoint_active = _sophia_property(
-        'scheduler.checkpoint_active',
-        False,
-        True)
-    scheduler_gc_active = _sophia_property(
-        'scheduler.gc_active',
-        False,
-        True)
-    scheduler_reqs = _sophia_property('scheduler.reqs', False)
-
-    def checkpoint(self):
-        self._config('scheduler.checkpoint', 0)
-
-    def gc(self):
-        self._config('scheduler.gc', 0)
-
-    # WAL properties.
-    log_enable = _sophia_property('log.enable', False)
-    log_path = _sophia_property('log.path')
-    log_sync = _sophia_property('log.sync', False)
-    log_files = _sophia_property('log.files', False, True)
-
-    def log_rotate(self):
-        self._config('log.rotate', 0)
-
-    def log_gc(self):
-        self._config('log.gc', 0)
-
-    # Backup properties.
-    backup_path = _sophia_property('backup.path')
-    backup_active = _sophia_property('backup.active', False)
-    backup_last = _sophia_property('backup.last', False)
-    backup_last_complete = _sophia_property('backup.last_complete', False)
-
-    def backup(self):
-        self._config('backup.run', 0)
-
-    # Sophia properites.
-    build = _sophia_property('sophia.build', readonly=True)
-    version = _sophia_property('sophia.version', readonly=True)
-
-    cdef _config(self, key, value):
+    cdef apply_config(self, key, value):
         cdef:
             bytes bkey = encode(key)
             int rc
@@ -259,102 +119,183 @@ cdef class Sophia(object):
         if isinstance(value, bool):
             value = value and 1 or 0
         if isinstance(value, int):
-            rc = sp_setint(self.env, <const char *>bkey, <int>value)
+            rc = sp_setint(self.sophia.handle, <const char *>bkey, <int>value)
         elif isinstance(value, basestring):
             bvalue = encode(value)
             rc = sp_setstring(
-                self.env,
+                self.sophia.handle,
                 <const char *>bkey,
                 <const char *>bvalue,
                 0)
-        _check(self.env, rc)
+        _check(self.sophia.handle, rc)
+
+    cdef apply_all(self):
+        for key, value in self._config.items():
+            self.apply_config(key, value)
+
+
+cdef class _SophiaObject(object):
+    cdef:
+        void *handle
+
+    def __cinit__(self, *_, **__):
+        self.handle = <void *>0
+
+    cdef destroy(self):
+        sp_destroy(self.handle)
+        self.handle = <void *>0
+
+
+cdef class Sophia(_SophiaObject):
+    cdef:
+        bint is_open
+        bytes b_path
+        readonly bint auto_open
+        readonly Configuration config
+        readonly object path
+
+    def __cinit__(self, path='sophia', auto_open=True):
+        self.path = path
+        self.auto_open = auto_open
+
+        self.b_path = encode(path)
+        self.handle = sp_env()
+
+    def __init__(self, path='sophia', auto_open=True):
+        self.config = Configuration(self)
+        if self.auto_open:
+            self.open()
+
+    def __dealloc__(self):
+        if self.handle:
+            sp_destroy(self.handle)
 
     cpdef bint open(self):
         if self.is_open:
             return False
 
-        sp_setstring(self.env, 'sophia.path', <const char *>self.b_path, 0)
-        sp_setstring(self.env, 'db', <const char *>self.b_name, 0)
-
-        for key, value in self.config.items():
-            self._config(key, value)
-
-        self.db = sp_getobject(self.env, 'db.%s' % self.b_name)
-        if not self.db:
-            raise MemoryError('unable to allocate db object.')
-
-        self.idx = self._create_index()
-        self.idx.configure()
-        _check(self.env, sp_open(self.env))
+        sp_setstring(self.handle, 'sophia.path', <const char *>self.b_path, 0)
+        self.config.apply_all()
+        _check(self.handle, sp_open(self.handle))
 
         self.is_open = True
         return True
-
-    cdef _Index _create_index(self, target=None):
-        if len(self.index_type) == 1:
-            try:
-                IndexType = INDEX_TYPE_MAP[self.index_type[0]]
-            except KeyError:
-                raise ValueError('Unrecognized index type, must be one of: %s'
-                                 % ', '.join(sorted(INDEX_TYPE_MAP)))
-            else:
-                return IndexType(self, target=target)
-        else:
-            return _MultiIndex(
-                self,
-                target=target,
-                index_types=self.index_type)
 
     cpdef bint close(self):
         if not self.is_open:
             return False
 
-        sp_destroy(self.db)
-        self.db = <void *>0
-        sp_destroy(self.env)
-        self.env = sp_env()
+        sp_destroy(self.handle)
+        self.handle = sp_env()
         self.is_open = False
         return True
 
-    cpdef view(self, name):
-        return View(self, name)
+    cpdef database(self, name, index_type=None):
+        return DB(self, name, index_type, self.auto_open)
 
-    cpdef transaction(self):
-        return Transaction(self)
+    # Memory control properties.
+    memory_limit = _sophia_property('memory.limit', False)
+    memory_pager_page_size = _sophia_property('memory.pager_page_size', False, True)
+    memory_pager_pools = _sophia_property('memory.pager_pools', False, True)
+    memory_pager_pool_size = _sophia_property('memory.pager_pool_size', False, True)
+    memory_used = _sophia_property('memory.used', False, True)
 
-    cpdef cursor(self, order='>=', key=None, prefix=None, keys=True,
-                 values=True):
-        return Cursor(self, order=order, key=key, prefix=prefix, keys=keys,
-                      values=values)
+    # Compaction properties.
+    compaction_node_size = _sophia_property('compaction.node_size', False)
+    compaction_page_size = _sophia_property('compaction.page_size', False)
+    compaction_page_checksum = _sophia_property('compaction.page_checksum', False)
+    compaction_redzone = _sophia_property('compaction.redzone', False)
+    compaction_redzone_mode = _sophia_property('compaction.redzone.mode', False)
+    compaction_redzone_async = _sophia_property('compaction.redzone.async', False)
 
-    def update(self, dict _data=None, **k):
-        with self.transaction() as txn:
-            if _data:
-                for key in _data:
-                    txn[key] = _data[key]
-            for key in k:
-                txn[key] = k[key]
+    # Scheduler properties and methods.
+    checkpoint = _sophia_method('scheduler.checkpoint')
+    gc = _sophia_method('scheduler.gc')
+    scheduler_threads = _sophia_property('scheduler.threads', False)
+    scheduler_checkpoint_active = _sophia_property('scheduler.checkpoint_active', False, True)
+    scheduler_gc_active = _sophia_property('scheduler.gc_active', False, True)
+    scheduler_reqs = _sophia_property('scheduler.reqs', False)
+
+    # WAL properties and methods.
+    log_rotate = _sophia_method('log.rotate')
+    log_gc = _sophia_method('log.gc')
+    log_enable = _sophia_property('log.enable', False)
+    log_path = _sophia_property('log.path')
+    log_sync = _sophia_property('log.sync', False)
+    log_files = _sophia_property('log.files', False, True)
+
+    # Backup properties and methods.
+    backup = _sophia_method('backup.run')
+    backup_path = _sophia_property('backup.path')
+    backup_active = _sophia_property('backup.active', False)
+    backup_last = _sophia_property('backup.last', False)
+    backup_last_complete = _sophia_property('backup.last_complete', False)
+
+    # Sophia properites.
+    build = _sophia_property('sophia.build', readonly=True)
+    version = _sophia_property('sophia.version', readonly=True)
+
+
+cdef class _BaseDBObject(_SophiaObject):
+    cdef:
+        readonly Sophia sophia
+        _Index index
+
+    def __cinit__(self, Sophia sophia, *_):
+        self.sophia = sophia
+
+    cdef void *_create_handle(self):
+        raise NotImplementedError
+
+    cpdef bint open(self):
+        if self.handle:
+            return False
+
+        self.handle = self._create_handle()
+        if not self.handle:
+            raise MemoryError('Unable to allocate object: %s.' % self)
+        self.index = self._get_index()
+        return True
+
+    cpdef bint close(self):
+        if not self.handle:
+            return False
+
+        self.destroy()
+        return True
+
+    cdef _Index _get_index(self):
+        raise NotImplementedError
 
     def __getitem__(self, key):
         if isinstance(key, slice):
             return self.get_range(key.start, key.stop, key.step)
-        return self.idx.get(key)
+        return self.index.get(self, key)
 
     def __setitem__(self, key, value):
-        self.idx.set(key, value)
+        self.index.set(self, key, value)
 
     def __delitem__(self, key):
-        self.idx.delete(key)
+        self.index.delete(self, key)
 
     def __contains__(self, key):
-        return self.idx.exists(key)
+        return self.index.exists(self, key)
+
+    cdef _update(self, DB db, dict _data=None, dict k=None):
+        with db.transaction() as txn:
+            if _data:
+                for key in _data:
+                    txn[key] = _data[key]
+            if k:
+                for key in k:
+                    txn[key] = k[key]
 
     def get_range(self, start=None, stop=None, reverse=False):
         cdef:
             Cursor cursor
 
-        start_key = start or ''
-        end_key = stop or ''
+        start_key = start or self.index.empty_value
+        end_key = stop or self.index.empty_value
 
         if start_key > end_key and not reverse and end_key:
             reverse = True
@@ -406,141 +347,136 @@ cdef class Sophia(object):
 
         return i
 
+    cpdef cursor(self, order='>=', key=None, prefix=None, keys=True,
+                 values=True):
+        raise NotImplemented
 
-cdef class Cursor(object):
+
+cdef class DB(_BaseDBObject):
     cdef:
-        public Sophia sophia
-        readonly bytes order
-        readonly bytes prefix
-        bint keys
-        bint values
-        object key
-        tuple idx_keys
-        void *cursor
-        void *handle
+        bint auto_open
+        readonly bytes name
+        readonly Configuration config
+        tuple index_type
 
-    def __cinit__(self, Sophia sophia, order='>=', key=None, prefix=None,
-                  keys=True, values=True, **_):
-        self.sophia = sophia
-        self.order = encode(order)
-        self.keys = keys
-        self.values = values
-        self.idx_keys = self.sophia.idx.keys
-        if key:
-            self.key = key
-        if prefix:
-            self.prefix = encode(prefix)
+    def __cinit__(self, Sophia sophia, name, index_type=None, auto_open=True):
+        self.name = encode(name)
+
+        if not index_type:
+            self.index_type = ('string',)
+        elif isinstance(index_type, basestring):
+            self.index_type = (index_type,)
+        else:
+            self.index_type = tuple(index_type)
+
+        self.auto_open = auto_open
+        self.config = self.sophia.config
+
+    def __init__(self, Sophia sophia, name, index_type=None, auto_open=True):
+        if self.auto_open:
+            self.open()
 
     def __dealloc__(self):
-        if self.sophia.env and self.cursor:
-            sp_destroy(self.cursor)
+        if self.sophia.handle and self.handle:
+            sp_destroy(self.handle)
 
-    def __iter__(self):
+    cdef void *_create_handle(self):
         cdef:
-            char *kbuf
-            Py_ssize_t klen
+            void *handle
+        sp_setstring(self.sophia.handle, 'db', <const char *>self.name, 0)
+        handle = sp_getobject(self.sophia.handle, 'db.%s' % self.name)
+        _check(self.sophia.handle, sp_open(handle))
+        return handle
 
-        if self.cursor:
-            sp_destroy(self.cursor)
-        self.cursor = sp_cursor(self.sophia.env)
-        self.handle = self.get_handle()
-        if self.key:
-            self.sophia.idx.set_key(self.handle, self.key)
-        sp_setstring(self.handle, 'order', <char *>self.order, 0)
-        if self.prefix:
-            sp_setstring(
-                self.handle,
-                'prefix',
-                <char *>self.prefix,
-                (sizeof(char) * len(self.prefix)))
-        return self
+    cdef _Index _get_index(self):
+        cdef:
+            _Index index
 
-    cdef void *get_handle(self):
-        return sp_document(self.sophia.db)
+        if len(self.index_type) == 1:
+            try:
+                IndexType = INDEX_TYPE_MAP[self.index_type[0]]
+            except KeyError:
+                raise ValueError('Unrecognized index type, must be one of: %s'
+                                 % ', '.join(sorted(INDEX_TYPE_MAP)))
+            else:
+                index = IndexType(self.sophia, self)
+        else:
+            index = _MultiIndex(self.sophia, self, index_types=self.index_type)
 
-    def __next__(self):
-        self.handle = sp_get(self.cursor, self.handle)
-        if not self.handle:
-            sp_destroy(self.cursor)
-            self.cursor = NULL
-            raise StopIteration
+        index.configure()
+        return index
 
-        cdef bkey
-        if self.keys and self.values:
-            bkey = self.sophia.idx.extract_key(self.handle)
-            return (bkey,
-                    _getstring(self.handle, 'value'))
-        elif self.keys:
-            bkey = self.sophia.idx.extract_key(self.handle)
-            return bkey
-        elif self.values:
-            return _getstring(self.handle, 'value')
+    def update(self, dict _data=None, **k):
+        self._update(self, _data, k)
 
+    cpdef transaction(self):
+        return Transaction(self.sophia, self)
 
-cdef class _BaseDBObject(object):
-    cdef:
-        public Sophia sophia
-        _Index idx
-        void *handle
+    cpdef view(self, name):
+        return View(self.sophia, self, name)
 
-    def __cinit__(self, Sophia sophia, *_):
-        self.sophia = sophia
+    cpdef cursor(self, order='>=', key=None, prefix=None, keys=True,
+                 values=True):
+        return Cursor(
+            sophia=self.sophia,
+            db=self,
+            target=self,
+            order=order,
+            key=key,
+            prefix=prefix,
+            keys=keys,
+            values=values)
 
-    cdef void *create_handle(self):
-        raise NotImplementedError
+    # Database properties.
+    compression = _db_property('compression')
+    compression_key = _db_property('compression_key', False)
+    database_id = _db_property('id', False)
+    format = _db_property('format')
+    mmap = _db_property('mmap', False)
+    sync = _db_property('sync', False)
+    status = _db_property('status', readonly=True)
 
-    def __getitem__(self, key):
-        return self.idx.get(key)
-
-    def __setitem__(self, key, value):
-        self.idx.set(key, value)
-
-    def __delitem__(self, key):
-        self.idx.delete(key)
-
-    def __contains__(self, key):
-        return self.idx.exists(key)
+    # Database index properties.
+    index_branch_avg = _db_property('index.branch_avg', False, True)
+    index_branch_count = _db_property('index.branch_count', False, True)
+    index_branch_max = _db_property('index.branch_max', False, True)
+    index_count = _db_property('index.count', False, True)
+    index_count_dup = _db_property('index.count_dup', False, True)
+    index_memory_used = _db_property('index.memory_used', False, True)
+    index_node_count = _db_property('index.node_count', False, True)
+    index_node_size = _db_property('index.node_size', False, True)
+    index_node_origin_size = _db_property(
+        'index.node_origin_size',
+        False,
+        True)
+    index_page_count = _db_property('index.page_count', False, True)
+    index_read_cache = _db_property('index.read_cache', False, True)
+    index_read_disk = _db_property('index.read_disk', False, True)
 
 
 cdef class View(_BaseDBObject):
     cdef:
-        bint is_open
+        DB db
         bytes name
 
-    def __init__(self, Sophia sophia, name, auto_open=True):
+    def __cinit__(self, Sophia sophia, DB db, name):
+        self.db = db
         self.name = encode(name)
-        self.is_open = False
-        if auto_open:
+
+    def __init__(self, Sophia sophia, DB db, name):
+        if self.db.auto_open:
             self.open()
 
     def __dealloc__(self):
-        if self.handle:
+        if self.sophia.handle and self.db.handle and self.handle:
             sp_destroy(self.handle)
 
-    cpdef bint open(self):
-        if self.is_open:
-            return False
+    cdef void *_create_handle(self):
+        sp_setstring(self.sophia.handle, 'view', <char *>self.name, 0)
+        return sp_getobject(self.sophia.handle, encode('view.%s' % self.name))
 
-        self.handle = self.create_handle()
-        if not self.handle:
-            raise MemoryError('Unable to create view.')
-
-        self.idx = self.sophia._create_index(target=self)
-        self.is_open = True
-        return True
-
-    cpdef bint close(self):
-        if not self.is_open:
-            return False
-
-        sp_destroy(self.handle)
-        self.handle = <void *>0
-        self.is_open = False
-        return True
-
-    cdef void *create_handle(self):
-        sp_setstring(self.sophia.env, 'view', <char *>self.name, 0)
-        return sp_getobject(self.sophia.env, encode('view.%s' % self.name))
+    cdef _Index _get_index(self):
+        return self.db.index
 
     def __setitem__(self, key, value):
         raise ValueError('Views are read-only.')
@@ -548,11 +484,46 @@ cdef class View(_BaseDBObject):
     def __delitem__(self, key):
         raise ValueError('Views are read-only.')
 
+    cpdef cursor(self, order='>=', key=None, prefix=None, keys=True,
+                 values=True):
+        return Cursor(
+            sophia=self.sophia,
+            db=self.db,
+            target=self,
+            order=order,
+            key=key,
+            prefix=prefix,
+            keys=keys,
+            values=values)
 
-cdef class _BaseTransaction(_BaseDBObject):
+
+cdef class Transaction(_BaseDBObject):
+    cdef:
+        DB db
+
+    def __cinit__(self, Sophia sophia, DB db):
+        self.db = db
+
+    cdef void *_create_handle(self):
+        return sp_begin(self.sophia.handle)
+
+    cdef _Index _get_index(self):
+        return self.db.index
+
+    cdef check(self, int rc):
+        try:
+            _check(self.sophia.handle, rc)
+        except:
+            raise
+        else:
+            if rc == 1:
+                raise Exception('transaction was rolled back by another '
+                                'concurrent transaction.')
+            elif rc == 2:
+                raise Exception('transaction is not finished, waiting for a '
+                                'concurrent transaction to finish.')
     def __enter__(self):
-        self.handle = self.create_handle()
-        self.idx = self.sophia._create_index(target=self)
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -567,16 +538,14 @@ cdef class _BaseTransaction(_BaseDBObject):
 
     cpdef commit(self, begin=True):
         self.check(sp_commit(self.handle))
+        self.handle = <void *>0
         if begin:
-            self.__enter__()
+            self.open()
 
     cpdef rollback(self, begin=True):
-        sp_destroy(self.handle)
+        self.destroy()
         if begin:
-            self.__enter__()
-
-    cdef check(self, int rc):
-        pass
+            self.open()
 
     def __call__(self, fn):
         def inner(*args, **kwargs):
@@ -585,73 +554,123 @@ cdef class _BaseTransaction(_BaseDBObject):
         return inner
 
 
-cdef class Transaction(_BaseTransaction):
-    cdef void *create_handle(self):
-        return sp_begin(self.sophia.env)
+cdef class Cursor(_SophiaObject):
+    cdef:
+        Sophia sophia
+        DB db
+        _BaseDBObject target
+        readonly bytes order
+        readonly bytes prefix
+        readonly bint keys
+        readonly bint values
+        readonly object key
+        tuple indexes
+        void *current_item
 
-    cdef check(self, int rc):
-        try:
-            _check(self.sophia.env, rc)
-        except:
+    def __cinit__(self, Sophia sophia, DB db, _BaseDBObject target, order='>=',
+                  key=None, prefix=None, keys=True, values=True):
+        self.sophia = sophia
+        self.db = db
+        self.target = target
+        self.order = encode(order)
+        self.keys = keys
+        self.values = values
+        if key:
+            self.key = key
+        if prefix:
+            self.prefix = encode(prefix)
+
+        self.indexes = self.target.index.keys
+        self.current_item = <void *>0
+
+    def __dealloc__(self):
+        if self.current_item:
+            sp_destroy(self.current_item)
+
+        if self.sophia.handle and self.db.handle and self.handle:
             sp_destroy(self.handle)
-            raise
-        else:
-            if rc == 1:
-                raise Exception('transaction was rolled back by another '
-                                'concurrent transaction.')
-            elif rc == 2:
-                sp_destroy(self.handle)
-                raise Exception('transaction is not finished, waiting for a '
-                                'concurrent transaction to finish.')
+
+    def __iter__(self):
+        cdef:
+            char *kbuf
+            Py_ssize_t klen
+
+        if self.handle:
+            self.destroy()
+        self.handle = sp_cursor(self.sophia.handle)
+        self.current_item = sp_document(self.db.handle)
+        if self.key:
+            self.db.index.set_key(self.current_item, self.key)
+        sp_setstring(self.current_item, 'order', <char *>self.order, 0)
+        if self.prefix:
+            sp_setstring(
+                self.current_item,
+                'prefix',
+                <char *>self.prefix,
+                (sizeof(char) * len(self.prefix)))
+        return self
+
+    def __next__(self):
+        self.current_item = sp_get(self.handle, self.current_item)
+        if not self.current_item:
+            #self.destroy()
+            raise StopIteration
+
+        cdef bkey
+        if self.keys and self.values:
+            bkey = self.db.index.extract_key(self.current_item)
+            return (bkey,
+                    _getstring(self.current_item, 'value'))
+        elif self.keys:
+            bkey = self.db.index.extract_key(self.current_item)
+            return bkey
+        elif self.values:
+            return _getstring(self.current_item, 'value')
 
 
 cdef class _Index(object):
     cdef:
-        _BaseDBObject target
+        Sophia sophia
+        DB db
         bytes b_path, b_type
         bytes key
-        public Sophia sophia
+        object empty_value
         tuple keys
-        void *db
-        void *env
-        void *handle
 
     index_type = 'string'
 
-    def __cinit__(self, Sophia sophia, key='key', target=None, **_):
+    def __cinit__(self, Sophia sophia, DB db, key='key', **_):
         self.sophia = sophia
+        self.db = db
         self.key = encode(key)
         self.keys = (self.key,)
-        self.db = sophia.db
-        self.env = sophia.env
-        self.target = target
-        self.b_path = encode('db.%s.index.%s' % (self.sophia.b_name, self.key))
+        self.b_path = encode('db.%s.index.%s' % (db.name, key))
         self.b_type = encode(self.index_type)
-        if self.target:
-            self.handle = self.target.handle
-        else:
-            self.handle = self.db
+        self.empty_value = self._get_empty_value()
+
+    cdef _get_empty_value(self):
+        return ''
 
     cdef configure(self):
         sp_setstring(
-            self.env,
+            self.sophia.handle,
             <char *>self.b_path,
             <char *>self.b_type,
             0)
 
-    cdef set(self, key, value):
+    cdef set(self, _BaseDBObject target, key, value):
         cdef:
             char *kbuf
             char *vbuf
             Py_ssize_t klen, vlen
-            void *obj = sp_document(self.db)
+            void *obj = sp_document(self.db.handle)
 
         self.set_key(obj, key)
 
         PyString_AsStringAndSize(value, &vbuf, &vlen)
         sp_setstring(obj, 'value', vbuf, vlen + 1)
 
-        _check(self.env, sp_set(self.handle, obj))
+        _check(self.sophia.handle, sp_set(target.handle, obj))
 
     cdef set_key(self, void *obj, key):
         cdef:
@@ -664,32 +683,32 @@ cdef class _Index(object):
     cdef extract_key(self, void *obj):
         return _getstring(obj, self.key)
 
-    cdef get(self, key):
+    cdef get(self, _BaseDBObject target, key):
         cdef:
-            void *obj = sp_document(self.db)
+            void *obj = sp_document(self.db.handle)
 
         self.set_key(obj, key)
 
-        obj = sp_get(self.handle, obj)
+        obj = sp_get(target.handle, obj)
         if not obj:
             raise KeyError(key)
 
         return _getstring(obj, 'value')
 
-    cdef delete(self, key):
+    cdef delete(self, _BaseDBObject target, key):
         cdef:
-            void *obj = sp_document(self.db)
+            void *obj = sp_document(self.db.handle)
 
         self.set_key(obj, key)
-        _check(self.env, sp_delete(self.handle, obj))
+        _check(self.sophia.handle, sp_delete(target.handle, obj))
 
-    cdef exists(self, key):
+    cdef exists(self, _BaseDBObject target, key):
         cdef:
-            void *obj = sp_document(self.db)
+            void *obj = sp_document(self.db.handle)
 
         self.set_key(obj, key)
 
-        obj = sp_get(self.handle, obj)
+        obj = sp_get(target.handle, obj)
         if not obj:
             return False
         return True
@@ -697,6 +716,9 @@ cdef class _Index(object):
 
 cdef class _UInt32Index(_Index):
     index_type = 'u32'
+
+    cdef _get_empty_value(self):
+        return 0
 
     cdef set_key(self, void *obj, key):
         cdef:
@@ -718,6 +740,9 @@ cdef class _UInt32Index(_Index):
 
 cdef class _UInt64Index(_Index):
     index_type = 'u64'
+
+    cdef _get_empty_value(self):
+        return 0
 
     cdef set_key(self, void *obj, key):
         cdef:
@@ -741,8 +766,8 @@ cdef class _MultiIndex(_Index):
     cdef:
         tuple indexes
 
-    def __init__(self, Sophia sophia, key='key', target=None, index_types=None,
-                  *a):
+    def __cinit__(self, Sophia sophia, DB db, key='key', index_types=None,
+                  **_):
         if not index_types:
             raise ValueError('index_types is a required parameter.')
 
@@ -765,27 +790,36 @@ cdef class _MultiIndex(_Index):
             if i > 0:
                 bkey = encode('key_%s' % suffixes[i])
 
-            accum.append(IndexType(self.sophia, key=bkey, target=self.target))
+            accum.append(IndexType(self.sophia, self.db, key=bkey))
 
         self.indexes = tuple(accum)
         self.keys = tuple([index.key for index in accum])
 
+    cdef _get_empty_value(self):
+        cdef:
+            _Index idx
+            list accum = []
+
+        for idx in self.indexes:
+            accum.append(idx.empty_value)
+        return tuple(accum)
+
     cdef configure(self):
         cdef:
-            bytes db_idx_path = encode('db.%s.index' % self.sophia.b_name)
+            bytes db_idx_path = encode('db.%s.index' % self.db.name)
             _Index index
             bindex_type
 
         for index in self.indexes[1:]:
             sp_setstring(
-                self.env,
+                self.sophia.handle,
                 <char *>db_idx_path,
                 <char *>index.key,
                 0)
 
         for index in self.indexes:
             sp_setstring(
-                self.env,
+                self.sophia.handle,
                 <char *>index.b_path,
                 <char *>index.b_type,
                 0)
