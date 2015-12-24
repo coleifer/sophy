@@ -8,8 +8,10 @@ Features:
 * ACID transactions
 * Consistent cursors
 * Compression
+* Multi-part keys
 * Ordered key/value store
 * Range searches
+* Read-only views of point-in-time
 * Prefix searches
 * Python 2.x and 3.x
 
@@ -48,10 +50,8 @@ Sophy is very simple to use. It acts primarly like a Python `dict` object, but i
 To begin, instantiate your Sophia database. Multiple databases can exist under the same path:
 
 ```pycon
->>> from sophy import Sophia
->>> db = Sophia('db-name', path='/tmp/sophia-env')
->>> db.open()
-True
+>>> from sophy import connect
+>>> db = connect('data-dir', 'db-name')
 ```
 
 We can set values individually or in groups:
@@ -59,9 +59,9 @@ We can set values individually or in groups:
 ```pycon
 >>> db['k1'] = 'v1'
 >>> db.update(k2='v2', k3='v3', k4='v4')  # Efficient, atomic.
->>> with db.batch() as wb:  # Same as .update()
-...     wb['k1'] = 'v1-e'
-...     wb['k5'] = 'v5'
+>>> with db.transaction() as txn:  # Same as .update()
+...     txn['k1'] = 'v1-e'
+...     txn['k5'] = 'v5'
 ...
 ```
 
@@ -86,7 +86,7 @@ We can read values individually or in groups. When requesting a slice, the third
 [('k3', 'v3'), ('k4', 'v4'), ('k5', 'v5')]
 ```
 
-Values can also be deleted singly or in groups. To delete multiple items atomically use the `batch()` method.
+Values can also be deleted singly or in groups. To delete multiple items atomically use the `transaction()` method.
 
 ```pycon
 >>> del db['k3']
@@ -95,18 +95,16 @@ Traceback (most recent call last):
   ...
 KeyError: 'k3'
 
->>> with db.batch() as wb:
-...     del db['k2']
-...     del db['k5']
-...     del db['kxx']  # No error raised.
+>>> with db.transaction() as txn:
+...     del txn['k2']
+...     del txn['k5']
+...     del txn['kxx']  # No error raised.
 ...
 >>> list(db)
 [('k1', 'v1-e'), ('k4', 'v4')]
 ```
 
 ### Transactions
-
-In addition to atomic write batches, which support multiple writes and deletes, `sophy` supports transactions.
 
 ```pycon
 >>> with db.transaction() as txn:
@@ -131,13 +129,11 @@ You can call `commit()` or `rollback()` inside the transaction block itself:
 
 If an exception occurs in the wrapped block, the transaction will automatically be rolled back.
 
-The same applies to `batch()` operations. `batch()` operations can also be committed or rolled back explicitly.
-
 ### Cursors
 
 Sophia is an ordered key/value store, so cursors will by default iterate through the keyspace in ascending order. To iterate in descending order, you can specify this using the slicing technique described above. For finer-grained control, however, you can use the `cursor()` method.
 
-The `Sophia.cursor()` method supports a number of interesting parameters:
+The `Database.cursor()` method supports a number of interesting parameters:
 
 * `order`: either `'>='` (default), `'<='` (reverse), `'>'` (ascending not including endpoint), `'<'` (reverse, not including endpoint).
 * `key`: seek to this key before beginning to iterate.
@@ -159,15 +155,11 @@ To perform a prefix search, for example, you might do something like:
 
 ### Configuration
 
-Sophia supports a huge number of [configuration options](http://sphia.org/configuration.html), most of which are exposed as simple properties on the `Sophia` database object. For example, to configure `Sophia` to use mmap and compression:
+Sophia supports a huge number of [configuration options](http://sphia.org/configuration.html), most of which are exposed as simple properties on the `Sophia` or `Database` objects. For example, to configure a `Sophia` database to use mmap and compression:
 
 ```pycon
->>> db.close()  # We may need to close the db to set some options.
-True
->>> db.mmap = True
->>> db.compression = 'zstd'
->>> db.open()  # Now using mmap and compression.
-True
+>>> env = Sophia('my/data-dir', log_path='my/log-dir', threads=4)
+>>> db = env.database('my-db', mmap=True, sync=True, compression='zstd')
 ```
 
 You can also force checkpointing, garbage-collection, and other things using simple methods:
@@ -191,3 +183,11 @@ Some properties are read-only:
 ```
 
 Take a look at the [configuration docs](http://sphia.org/configuration.html) for more details.
+
+### Views
+
+To-do.
+
+### Multi-part keys
+
+To-do.

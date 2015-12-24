@@ -74,6 +74,14 @@ class BaseSophiaTestMethods(object):
 
         self.assertEqual(len(self.db), 2)
 
+    #def test_open_close(self):
+    #    self.db[self.k1] = 'v1'
+    #    self.db[self.k2] = 'v2'
+    #    self.db.close()
+    #    self.db.open()
+    #    self.assertEqual(self.db[self.k1], 'v1')
+    #    self.assertEqual(self.db[self.k2], 'v2')
+
     def test_collections(self):
         self.db[self.k1] = 'v1'
         self.db[self.k2] = 'v2'

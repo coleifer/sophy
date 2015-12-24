@@ -149,23 +149,49 @@ cdef class _SophiaObject(object):
         self.handle = <void *>0
 
 
+cdef class DatabaseDefinition(object):
+    cdef:
+        name
+        index_type
+
+    def __init__(self, name, index_type):
+        self.name = name
+        self.index_type = index_type
+
+
 cdef class Sophia(_SophiaObject):
     cdef:
         bint is_open
         bytes b_path
+        list db_defs
         readonly bint auto_open
         readonly _ConfigManager config
         readonly object path
 
-    def __cinit__(self, path='sophia', auto_open=True):
+    def __cinit__(self, path='sophia', databases=None, auto_open=True,
+                  backup_path=None, memory_limit=None, threads=None,
+                  log_path=None):
+        self.handle = sp_env()
+
+    def __init__(self, path='sophia', databases=None, auto_open=True,
+                  backup_path=None, memory_limit=None, threads=None,
+                  log_path=None):
         self.path = path
         self.auto_open = auto_open
 
-        self.b_path = encode(path)
-        self.handle = sp_env()
-
-    def __init__(self, path='sophia', auto_open=True):
         self.config = _ConfigManager(self)
+        self.b_path = encode(path)
+        self.db_defs = databases or []
+
+        if backup_path is not None:
+            self.backup_path = backup_path
+        if memory_limit is not None:
+            self.memory_limit = memory_limit
+        if threads is not None:
+            self.scheduler_threads = threads
+        if log_path is not None:
+            self.log_path = log_path
+
         if self.auto_open:
             self.open()
 
@@ -177,7 +203,11 @@ cdef class Sophia(_SophiaObject):
         if self.is_open:
             return False
 
+        cdef DatabaseDefinition db_def
+
         sp_setstring(self.handle, 'sophia.path', <const char *>self.b_path, 0)
+        for db_def in self.db_defs:
+            self.database(db_def.name, db_def.index_type)
         self.config.apply_all()
         _check(self.handle, sp_open(self.handle))
 
@@ -425,7 +455,9 @@ cdef class Database(_BaseDBObject):
         index.configure()
 
         # NOTE: We need to configure the index before opening the db.
-        _check(self.sophia.handle, sp_open(self.handle))
+        if self.sophia.is_open:
+            _check(self.sophia.handle, sp_open(self.handle))
+
         return index
 
     def update(self, dict _data=None, **k):
@@ -467,10 +499,7 @@ cdef class Database(_BaseDBObject):
     index_memory_used = _db_property('index.memory_used', False, True)
     index_node_count = _db_property('index.node_count', False, True)
     index_node_size = _db_property('index.node_size', False, True)
-    index_node_origin_size = _db_property(
-        'index.node_origin_size',
-        False,
-        True)
+    index_node_origin_size = _db_property('index.node_origin_size', False, True)
     index_page_count = _db_property('index.page_count', False, True)
     index_read_cache = _db_property('index.read_cache', False, True)
     index_read_disk = _db_property('index.read_disk', False, True)
