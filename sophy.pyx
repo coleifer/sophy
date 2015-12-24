@@ -755,6 +755,10 @@ cdef class _UInt32Index(_Index):
             return <uint32_t>((<uint32_t *>ptr)[0])
 
 
+cdef class _UInt32RevIndex(_UInt32Index):
+    index_type = 'u32rev'
+
+
 cdef class _UInt64Index(_Index):
     index_type = 'u64'
 
@@ -777,6 +781,10 @@ cdef class _UInt64Index(_Index):
         ptr = sp_getstring(obj, <char *>self.key, &nlen)
         if ptr:
             return <uint64_t>((<uint64_t *>ptr)[0])
+
+
+cdef class _UInt64RevIndex(_UInt64Index):
+    index_type = 'u64rev'
 
 
 cdef class _MultiIndex(_Index):
