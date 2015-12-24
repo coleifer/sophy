@@ -191,7 +191,7 @@ cdef class Sophia(_SophiaObject):
         return True
 
     cpdef database(self, name, index_type=None):
-        return DB(self, name, index_type, self.auto_open)
+        return Database(self, name, index_type, self.auto_open)
 
     # Memory control properties.
     memory_limit = _sophia_property('memory.limit', False)
@@ -281,7 +281,7 @@ cdef class _BaseDBObject(_SophiaObject):
     def __contains__(self, key):
         return self.index.exists(self, key)
 
-    cdef _update(self, DB db, dict _data=None, dict k=None):
+    cdef _update(self, Database db, dict _data=None, dict k=None):
         with db.transaction() as txn:
             if _data:
                 for key in _data:
@@ -294,27 +294,25 @@ cdef class _BaseDBObject(_SophiaObject):
         cdef:
             Cursor cursor
 
-        start_key = start or self.index.empty_value
-        end_key = stop or self.index.empty_value
-
-        if start_key > end_key and not reverse and end_key:
-            reverse = True
+        first = start is None
+        last = stop is None
 
         if reverse:
-            if ((end_key and not start_key) or
-                (start_key and not end_key) or
-                (start_key < end_key)):
-
-                start_key, end_key = end_key, start_key
+            if (first and not last) or (last and not first):
+                start, stop = stop, start
+            if (not first and not last) and (start < stop):
+                start, stop = stop, start
+        elif (not first and not last) and (start > stop):
+            reverse = True
 
         order = '<=' if reverse else '>='
-        cursor = self.cursor(order=order, key=start_key)
+        cursor = self.cursor(order=order, key=start)
 
         for key, value in cursor:
-            if end_key:
-                if reverse and key < end_key:
+            if stop:
+                if reverse and key < stop:
                     raise StopIteration
-                elif not reverse and key > end_key:
+                elif not reverse and key > stop:
                     raise StopIteration
 
             yield (key, value)
@@ -352,7 +350,7 @@ cdef class _BaseDBObject(_SophiaObject):
         raise NotImplemented
 
 
-cdef class DB(_BaseDBObject):
+cdef class Database(_BaseDBObject):
     cdef:
         bint auto_open
         readonly bytes name
@@ -385,7 +383,6 @@ cdef class DB(_BaseDBObject):
             void *handle
         sp_setstring(self.sophia.handle, 'db', <const char *>self.name, 0)
         handle = sp_getobject(self.sophia.handle, 'db.%s' % self.name)
-        _check(self.sophia.handle, sp_open(handle))
         return handle
 
     cdef _Index _get_index(self):
@@ -404,6 +401,9 @@ cdef class DB(_BaseDBObject):
             index = _MultiIndex(self.sophia, self, index_types=self.index_type)
 
         index.configure()
+
+        # NOTE: We need to configure the index before opening the db.
+        _check(self.sophia.handle, sp_open(self.handle))
         return index
 
     def update(self, dict _data=None, **k):
@@ -456,14 +456,14 @@ cdef class DB(_BaseDBObject):
 
 cdef class View(_BaseDBObject):
     cdef:
-        DB db
+        Database db
         bytes name
 
-    def __cinit__(self, Sophia sophia, DB db, name):
+    def __cinit__(self, Sophia sophia, Database db, name):
         self.db = db
         self.name = encode(name)
 
-    def __init__(self, Sophia sophia, DB db, name):
+    def __init__(self, Sophia sophia, Database db, name):
         if self.db.auto_open:
             self.open()
 
@@ -499,9 +499,9 @@ cdef class View(_BaseDBObject):
 
 cdef class Transaction(_BaseDBObject):
     cdef:
-        DB db
+        Database db
 
-    def __cinit__(self, Sophia sophia, DB db):
+    def __cinit__(self, Sophia sophia, Database db):
         self.db = db
 
     cdef void *_create_handle(self):
@@ -557,7 +557,7 @@ cdef class Transaction(_BaseDBObject):
 cdef class Cursor(_SophiaObject):
     cdef:
         Sophia sophia
-        DB db
+        Database db
         _BaseDBObject target
         readonly bytes order
         readonly bytes prefix
@@ -567,7 +567,7 @@ cdef class Cursor(_SophiaObject):
         tuple indexes
         void *current_item
 
-    def __cinit__(self, Sophia sophia, DB db, _BaseDBObject target, order='>=',
+    def __cinit__(self, Sophia sophia, Database db, _BaseDBObject target, order='>=',
                   key=None, prefix=None, keys=True, values=True):
         self.sophia = sophia
         self.db = db
@@ -631,7 +631,7 @@ cdef class Cursor(_SophiaObject):
 cdef class _Index(object):
     cdef:
         Sophia sophia
-        DB db
+        Database db
         bytes b_path, b_type
         bytes key
         object empty_value
@@ -639,13 +639,15 @@ cdef class _Index(object):
 
     index_type = 'string'
 
-    def __cinit__(self, Sophia sophia, DB db, key='key', **_):
+    def __cinit__(self, Sophia sophia, Database db, key='key', **_):
         self.sophia = sophia
         self.db = db
         self.key = encode(key)
         self.keys = (self.key,)
         self.b_path = encode('db.%s.index.%s' % (db.name, key))
         self.b_type = encode(self.index_type)
+
+    def __init__(self, Sophia sophia, Database db, key='key', **_):
         self.empty_value = self._get_empty_value()
 
     cdef _get_empty_value(self):
@@ -766,7 +768,7 @@ cdef class _MultiIndex(_Index):
     cdef:
         tuple indexes
 
-    def __cinit__(self, Sophia sophia, DB db, key='key', index_types=None,
+    def __cinit__(self, Sophia sophia, Database db, key='key', index_types=None,
                   **_):
         if not index_types:
             raise ValueError('index_types is a required parameter.')

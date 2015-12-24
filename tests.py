@@ -341,8 +341,7 @@ class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
             ('abb', '4')])
 
 
-#class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
-class Foo2:
+class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
     def create_db(self):
         return self.sophia.database('test-kvi', index_type='u32')
 
@@ -366,8 +365,7 @@ class Foo2:
         self.r5_1 = 15
 
 
-#class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
-class Foo:
+class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
     def create_db(self):
         return self.sophia.database(
             'test-3',
