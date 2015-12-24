@@ -15,9 +15,7 @@ class BaseTestCase(unittest.TestCase):
             shutil.rmtree(TEST_DIR)
 
         self.sophia = Sophia(TEST_DIR)
-        self.sophia.open()
         self.db = self.create_db()
-        self.db.open()
 
     def tearDown(self):
         self.db.close()

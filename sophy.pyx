@@ -396,9 +396,7 @@ cdef class Database(_BaseDBObject):
             sp_destroy(self.handle)
 
     cdef destroy(self):
-        if self.sophia.handle and self.handle:
-            sp_destroy(self.handle)
-            self.handle = <void *>0
+        pass
 
     cdef void *_create_handle(self):
         cdef:
@@ -868,6 +866,12 @@ cdef class _MultiIndex(_Index):
             result.append(bkey)
 
         return tuple(result)
+
+
+def connect(data_dir, db_name, index_type=None):
+    sophia = Sophia(path=data_dir, auto_open=True)
+    sophia.open()
+    return sophia.database(db_name, index_type)
 
 
 cdef dict INDEX_TYPE_MAP = {
