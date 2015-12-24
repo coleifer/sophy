@@ -396,7 +396,9 @@ cdef class Database(_BaseDBObject):
             sp_destroy(self.handle)
 
     cdef destroy(self):
-        pass
+        if self.sophia.handle and self.handle:
+            sp_destroy(self.handle)
+            self.handle = <void *>0
 
     cdef void *_create_handle(self):
         cdef:
