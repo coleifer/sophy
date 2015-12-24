@@ -149,39 +149,29 @@ cdef class _SophiaObject(object):
         self.handle = <void *>0
 
 
-cdef class DatabaseDefinition(object):
-    cdef:
-        name
-        index_type
-
-    def __init__(self, name, index_type):
-        self.name = name
-        self.index_type = index_type
-
-
 cdef class Sophia(_SophiaObject):
     cdef:
         bint is_open
         bytes b_path
+        readonly dict dbs
         list db_defs
         readonly bint auto_open
         readonly _ConfigManager config
         readonly object path
 
-    def __cinit__(self, path='sophia', databases=None, auto_open=True,
-                  backup_path=None, memory_limit=None, threads=None,
-                  log_path=None):
+    def __cinit__(self):
         self.handle = sp_env()
 
-    def __init__(self, path='sophia', databases=None, auto_open=True,
-                  backup_path=None, memory_limit=None, threads=None,
-                  log_path=None):
+    def __init__(self, path, databases=None, auto_open=True,
+                 backup_path=None, memory_limit=None, threads=None,
+                 log_path=None):
         self.path = path
         self.auto_open = auto_open
 
         self.config = _ConfigManager(self)
         self.b_path = encode(path)
         self.db_defs = databases or []
+        self.dbs = {}
 
         if backup_path is not None:
             self.backup_path = backup_path
@@ -203,28 +193,48 @@ cdef class Sophia(_SophiaObject):
         if self.is_open:
             return False
 
-        cdef DatabaseDefinition db_def
+        cdef:
+            Database db_obj
+            tuple db_def
 
+        # Configure the environment, databases and indexes.
         sp_setstring(self.handle, 'sophia.path', <const char *>self.b_path, 0)
         for db_def in self.db_defs:
-            self.database(db_def.name, db_def.index_type)
+            self._add_db(Database(self, *db_def))
         self.config.apply_all()
+
+        # Open the environment.
         _check(self.handle, sp_open(self.handle))
+
+        # Open all databases.
+        for db_obj in self.dbs.values():
+            db_obj.open(configure=False)
 
         self.is_open = True
         return True
+
+    cdef _add_db(self, Database db_obj, open_database=False):
+        self.dbs[db_obj.name] = db_obj
+        db_obj.configure()
+        if open_database:
+            db_obj.open(configure=False)
 
     cpdef bint close(self):
         if not self.is_open:
             return False
 
+        self.dbs = {}
         sp_destroy(self.handle)
         self.handle = sp_env()
         self.is_open = False
         return True
 
-    cpdef database(self, name, index_type=None):
-        return Database(self, name, index_type, self.auto_open)
+    def __getitem__(self, name):
+        return self.dbs[name]
+
+    def create_database(self, name, index_type='string'):
+        self._add_db(Database(self, name, index_type), self.is_open)
+        return self.dbs[name]
 
     # Memory control properties.
     memory_limit = _sophia_property('memory.limit', False)
@@ -277,14 +287,19 @@ cdef class _BaseDBObject(_SophiaObject):
     def __cinit__(self, Sophia sophia, *_):
         self.sophia = sophia
 
-    cpdef bint open(self):
+    cdef configure(self):
+        self.index = self._get_index()
+
+    cpdef bint open(self, bint configure=True):
         if self.handle:
             return False
+
+        if configure:
+            self.configure()
 
         self.handle = self._create_handle()
         if not self.handle:
             raise MemoryError('Unable to allocate object: %s.' % self)
-        self.index = self._get_index()
         return True
 
     cpdef bint close(self):
@@ -397,14 +412,16 @@ cdef class _BaseDBObject(_SophiaObject):
         raise NotImplemented
 
 
+class CannotCloseException(Exception): pass
+
+
 cdef class Database(_BaseDBObject):
     cdef:
-        bint auto_open
         readonly bytes name
         readonly _ConfigManager config
         tuple index_type
 
-    def __cinit__(self, Sophia sophia, name, index_type=None, auto_open=True):
+    def __cinit__(self, Sophia sophia, name, index_type=None):
         self.name = encode(name)
 
         if not index_type:
@@ -414,26 +431,30 @@ cdef class Database(_BaseDBObject):
         else:
             self.index_type = tuple(index_type)
 
-        self.auto_open = auto_open
         self.config = self.sophia.config
-
-    def __init__(self, Sophia sophia, name, index_type=None, auto_open=True):
-        if self.auto_open:
-            self.open()
 
     def __dealloc__(self):
         if self.sophia.handle and self.handle:
             sp_destroy(self.handle)
+
+    cpdef bint close(self):
+        if self.sophia.is_open:
+            raise CannotCloseException()
+        return False
 
     cdef destroy(self):
         if self.sophia.handle and self.handle:
             sp_destroy(self.handle)
             self.handle = <void *>0
 
+    cdef configure(self):
+        sp_setstring(self.sophia.handle, 'db', <const char *>self.name, 0)
+        self.index = self._get_index()
+        self.index.configure()
+
     cdef void *_create_handle(self):
         cdef:
             void *handle
-        sp_setstring(self.sophia.handle, 'db', <const char *>self.name, 0)
         handle = sp_getobject(self.sophia.handle, 'db.%s' % self.name)
         return handle
 
@@ -451,12 +472,6 @@ cdef class Database(_BaseDBObject):
                 index = IndexType(self.sophia, self)
         else:
             index = _MultiIndex(self.sophia, self, index_types=self.index_type)
-
-        index.configure()
-
-        # NOTE: We need to configure the index before opening the db.
-        if self.sophia.is_open:
-            _check(self.sophia.handle, sp_open(self.handle))
 
         return index
 
@@ -515,8 +530,7 @@ cdef class View(_BaseDBObject):
         self.name = encode(name)
 
     def __init__(self, Sophia sophia, Database db, name):
-        if self.db.auto_open:
-            self.open()
+        self.open()
 
     def __dealloc__(self):
         if self.sophia.handle and self.db.handle and self.handle:

@@ -6,28 +6,30 @@ import unittest
 from sophy import Sophia
 
 
+DB_NAME = 'db-test'
 TEST_DIR = 'sophia-test'
 
 
 class BaseTestCase(unittest.TestCase):
+    _index_type = 'string'
+
     def setUp(self):
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
-        self.sophia = Sophia(TEST_DIR)
-        self.db = self.create_db()
+        self.sophia = self.create_env()
+        self.db = self.sophia[DB_NAME]
 
     def tearDown(self):
-        self.db.close()
         self.sophia.close()
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
+    def create_env(self):
+        return Sophia(TEST_DIR, [(DB_NAME, self._index_type)])
+
 
 class TestConfiguration(BaseTestCase):
-    def create_db(self):
-        return self.sophia.database('test-kv')
-
     def test_version(self):
         v = self.sophia.version
         self.assertEqual(v, '2.1.1')
@@ -74,13 +76,18 @@ class BaseSophiaTestMethods(object):
 
         self.assertEqual(len(self.db), 2)
 
-    #def test_open_close(self):
-    #    self.db[self.k1] = 'v1'
-    #    self.db[self.k2] = 'v2'
-    #    self.db.close()
-    #    self.db.open()
-    #    self.assertEqual(self.db[self.k1], 'v1')
-    #    self.assertEqual(self.db[self.k2], 'v2')
+    def test_open_close(self):
+        self.db[self.k1] = 'v1'
+        self.db[self.k2] = 'v2'
+        db_ptr = id(self.db)
+        self.sophia.close()
+
+        self.sophia.open()
+        db = self.sophia[self.db.name]
+        self.assertTrue(db_ptr != id(db))
+
+        self.assertEqual(db[self.k1], 'v1')
+        self.assertEqual(db[self.k2], 'v2')
 
     def test_collections(self):
         self.db[self.k1] = 'v1'
@@ -315,8 +322,7 @@ class BaseSophiaTestMethods(object):
 
 
 class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
-    def create_db(self):
-        return self.sophia.database('test-kv')
+    _index_type = 'string'
 
     def get_keys(self):
         return ('k1', 'k2', 'k3', 'k4')
@@ -382,8 +388,7 @@ class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
 
 
 class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
-    def create_db(self):
-        return self.sophia.database('test-kvi', index_type='u32')
+    _index_type = 'u32'
 
     def get_keys(self):
         return (
@@ -406,10 +411,7 @@ class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
 
 
 class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
-    def create_db(self):
-        return self.sophia.database(
-            'test-3',
-            index_type=('string', 'string', 'string'))
+    _index_type = ('string', 'string', 'string')
 
     def get_keys(self):
         return (
