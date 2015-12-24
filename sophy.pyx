@@ -1,7 +1,6 @@
 from cpython.string cimport PyString_AsStringAndSize
 from cpython.string cimport PyString_FromStringAndSize
-from libc.stdlib cimport free, malloc
-from libc.string cimport memset
+from libc.stdlib cimport malloc
 from libc.stdint cimport int64_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
@@ -40,7 +39,9 @@ cdef extern from "src/sophia.h":
 cdef bytes encode(obj):
     if isinstance(obj, unicode):
         return obj.encode('utf-8')
-    return bytes(obj)
+    elif not isinstance(obj, bytes):
+        return bytes(obj)
+    return obj
 
 cdef inline _getstring(void *obj, const char *key):
     cdef:
@@ -86,7 +87,7 @@ def _db_property(prop, string=True, readonly=False):
         return property(_getter, _setter)
 
 
-cdef class Configuration(object):
+cdef class _ConfigManager(object):
     cdef:
         dict _config
         Sophia sophia
@@ -151,7 +152,7 @@ cdef class Sophia(_SophiaObject):
         bint is_open
         bytes b_path
         readonly bint auto_open
-        readonly Configuration config
+        readonly _ConfigManager config
         readonly object path
 
     def __cinit__(self, path='sophia', auto_open=True):
@@ -162,7 +163,7 @@ cdef class Sophia(_SophiaObject):
         self.handle = sp_env()
 
     def __init__(self, path='sophia', auto_open=True):
-        self.config = Configuration(self)
+        self.config = _ConfigManager(self)
         if self.auto_open:
             self.open()
 
@@ -354,7 +355,7 @@ cdef class Database(_BaseDBObject):
     cdef:
         bint auto_open
         readonly bytes name
-        readonly Configuration config
+        readonly _ConfigManager config
         tuple index_type
 
     def __cinit__(self, Sophia sophia, name, index_type=None, auto_open=True):
@@ -377,6 +378,11 @@ cdef class Database(_BaseDBObject):
     def __dealloc__(self):
         if self.sophia.handle and self.handle:
             sp_destroy(self.handle)
+
+    cdef destroy(self):
+        if self.sophia.handle and self.handle:
+            sp_destroy(self.handle)
+            self.handle = <void *>0
 
     cdef void *_create_handle(self):
         cdef:
@@ -471,6 +477,11 @@ cdef class View(_BaseDBObject):
         if self.sophia.handle and self.db.handle and self.handle:
             sp_destroy(self.handle)
 
+    cdef destroy(self):
+        if self.sophia.handle and self.db.handle and self.handle:
+            sp_destroy(self.handle)
+            self.handle = <void *>0
+
     cdef void *_create_handle(self):
         sp_setstring(self.sophia.handle, 'view', <char *>self.name, 0)
         return sp_getobject(self.sophia.handle, encode('view.%s' % self.name))
@@ -503,6 +514,10 @@ cdef class Transaction(_BaseDBObject):
 
     def __cinit__(self, Sophia sophia, Database db):
         self.db = db
+
+    def __dealloc__(self):
+        if self.sophia.handle and self.db.handle and self.handle:
+            sp_destroy(self.handle)
 
     cdef void *_create_handle(self):
         return sp_begin(self.sophia.handle)
