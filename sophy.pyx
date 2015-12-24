@@ -914,9 +914,10 @@ cdef class _MultiIndex(_Index):
 
 
 def connect(data_dir, db_name, index_type=None):
-    sophia = Sophia(path=data_dir, auto_open=True)
+    cdef Sophia sophia
+    sophia = Sophia(data_dir, [(db_name, index_type)])
     sophia.open()
-    return sophia.database(db_name, index_type)
+    return sophia[db_name]
 
 
 cdef dict INDEX_TYPE_MAP = {
