@@ -1,9 +1,9 @@
-from cpython.string cimport PyString_AsStringAndSize
-from cpython.string cimport PyString_FromStringAndSize
+from cpython.bytes cimport PyBytes_AsStringAndSize
 from libc.stdlib cimport malloc
 from libc.stdint cimport int64_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
+import sys
 
 from functools import wraps
 
@@ -37,13 +37,14 @@ cdef extern from "src/sophia.h":
     cdef int sp_prepare(void *)
     cdef int sp_commit(void *)
 
+cdef bint IS_PY3K = sys.version_info[0] == 3
 
 cdef bytes encode(obj):
     if isinstance(obj, unicode):
         return obj.encode('utf-8')
-    elif not isinstance(obj, bytes):
-        return bytes(obj)
-    return obj
+    elif isinstance(obj, bytes):
+        return obj
+    return bytes(obj)
 
 cdef inline _getstring(void *obj, const char *key):
     cdef:
@@ -52,7 +53,13 @@ cdef inline _getstring(void *obj, const char *key):
 
     buf = <char *>sp_getstring(obj, key, &nlen)
     if buf:
-        return PyString_FromStringAndSize(buf, nlen - 1)
+        value = buf[:nlen - 1]
+        if IS_PY3K:
+            try:
+                return value.decode('utf-8')
+            except UnicodeDecodeError:
+                pass
+        return value
 
 cdef inline _check(void *env, int rc):
     if rc == -1:
@@ -455,7 +462,7 @@ cdef class Database(_BaseDBObject):
     cdef void *_create_handle(self):
         cdef:
             void *handle
-        handle = sp_getobject(self.sophia.handle, 'db.%s' % self.name)
+        handle = sp_getobject(self.sophia.handle, encode('db.%s' % self.name))
         return handle
 
     cdef _Index _get_index(self):
@@ -728,7 +735,9 @@ cdef class _Index(object):
 
         self.set_key(obj, key)
 
-        PyString_AsStringAndSize(value, &vbuf, &vlen)
+        if IS_PY3K:
+            value = encode(value)
+        PyBytes_AsStringAndSize(value, &vbuf, &vlen)
         sp_setstring(obj, 'value', vbuf, vlen + 1)
 
         _check(self.sophia.handle, sp_set(target.handle, obj))
@@ -738,7 +747,9 @@ cdef class _Index(object):
             char *kbuf
             Py_ssize_t klen
 
-        PyString_AsStringAndSize(key, &kbuf, &klen)
+        if IS_PY3K:
+            key = encode(key)
+        PyBytes_AsStringAndSize(key, &kbuf, &klen)
         sp_setstring(obj, <char *>self.key, kbuf, klen + 1)
 
     cdef extract_key(self, void *obj):
