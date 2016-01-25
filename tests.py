@@ -320,6 +320,21 @@ class BaseSophiaTestMethods(object):
 
         v.close()
 
+    def test_multiple_dbs(self):
+        db_foo = self.sophia.create_database('foo')
+        db_bar = self.sophia.create_database('bar')
+
+        db_foo['k1'] = 'foo'
+        db_bar['k1'] = 'bar'
+        self.assertEqual(db_foo['k1'], 'foo')
+        self.assertEqual(db_bar['k1'], 'bar')
+        self.sophia.close()
+        self.sophia.open()
+        db_foo = self.sophia['foo']
+        db_bar = self.sophia['bar']
+        self.assertEqual(db_foo['k1'], 'foo')
+        self.assertEqual(db_bar['k1'], 'bar')
+
 
 class TestStringIndex(BaseSophiaTestMethods, BaseTestCase):
     _index_type = 'string'

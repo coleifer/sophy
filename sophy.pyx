@@ -70,7 +70,7 @@ cdef inline _check(void *env, int rc):
             raise Exception('unknown error occurred.')
 
 
-def _sophia_property(propname, string=True, readonly=False):
+def _sp(propname, string=False, readonly=False):
     def _getter(self):
         return self.config.get_option(propname, string)
     if readonly:
@@ -80,12 +80,12 @@ def _sophia_property(propname, string=True, readonly=False):
             self.config.set_option(propname, value)
         return property(_getter, _setter)
 
-def _sophia_method(propname):
+def _sm(propname):
     def _method(self):
         self.config.set_option(propname, 0)
     return _method
 
-def _db_property(prop, string=True, readonly=False):
+def _dbp(prop, string=False, readonly=False):
     def _getter(self):
         return self.config.get_option('db.%s.%s' % (self.name, prop), string)
     if readonly:
@@ -94,6 +94,11 @@ def _db_property(prop, string=True, readonly=False):
         def _setter(self, value):
             self.config.set_option('db.%s.%s' % (self.name, prop), value)
         return property(_getter, _setter)
+
+def _dbm(propname):
+    def _method(self):
+        self.config.set_option('db.%s.%s' % (self.name, propname), 0)
+    return _method
 
 
 cdef class _ConfigManager(object):
@@ -241,49 +246,122 @@ cdef class Sophia(_SophiaObject):
 
     def create_database(self, name, index_type='string'):
         self._add_db(Database(self, name, index_type), self.is_open)
+        self.db_defs.append((name, index_type))
         return self.dbs[name]
 
-    # Memory control properties.
-    memory_limit = _sophia_property('memory.limit', False)
-    memory_pager_page_size = _sophia_property('memory.pager_page_size', False, True)
-    memory_pager_pools = _sophia_property('memory.pager_pools', False, True)
-    memory_pager_pool_size = _sophia_property('memory.pager_pool_size', False, True)
-    memory_used = _sophia_property('memory.used', False, True)
+    # Properties: key, is_string?, is_readonly?
 
-    # Compaction properties.
-    compaction_node_size = _sophia_property('compaction.node_size', False)
-    compaction_page_size = _sophia_property('compaction.page_size', False)
-    compaction_page_checksum = _sophia_property('compaction.page_checksum', False)
-    compaction_redzone = _sophia_property('compaction.redzone', False)
-    compaction_redzone_mode = _sophia_property('compaction.redzone.mode', False)
-    compaction_redzone_async = _sophia_property('compaction.redzone.async', False)
+    # Sophia Environment.
+    version = _sp('sophia.version', True, True)
+    version_storage = _sp('sophia.version_storage', True, True)
+    build = _sp('sophia.build', True, True)
+    error = _sp('sophia.error', True, True)
+    sophia_path = _sp('sophia.path', True)
+    sophia_path_create = _sp('sophia.path_create')
+    recover = _sp('sophia.recover')
 
-    # Scheduler properties and methods.
-    checkpoint = _sophia_method('scheduler.checkpoint')
-    gc = _sophia_method('scheduler.gc')
-    scheduler_threads = _sophia_property('scheduler.threads', False)
-    scheduler_checkpoint_active = _sophia_property('scheduler.checkpoint_active', False, True)
-    scheduler_gc_active = _sophia_property('scheduler.gc_active', False, True)
-    scheduler_reqs = _sophia_property('scheduler.reqs', False)
+    # Memory Control.
+    memory_limit = _sp('memory.limit')
+    memory_used = _sp('memory.used', readonly=True)
+    memory_anticache = _sp('memory.anticache')
+    memory_pager_pool_size = _sp('memory.pager_pool_size', readonly=True)
+    memory_pager_page_size = _sp('memory.pager_page_size', readonly=True)
+    memory_pager_pools = _sp('memory.pager_pools', readonly=True)
 
-    # WAL properties and methods.
-    log_rotate = _sophia_method('log.rotate')
-    log_gc = _sophia_method('log.gc')
-    log_enable = _sophia_property('log.enable', False)
-    log_path = _sophia_property('log.path')
-    log_sync = _sophia_property('log.sync', False)
-    log_files = _sophia_property('log.files', False, True)
+    # Scheduler.
+    scheduler_threads = _sp('scheduler.threads')
+    scheduler_zone = _sp('scheduler.zone', readonly=True)
+    scheduler_checkpoint_active = _sp('scheduler.checkpoint_active', readonly=True)
+    scheduler_checkpoint_lsn = _sp('scheduler.checkpoint_lsn', readonly=True)
+    scheduler_checkpoint_lsn_last = _sp('scheduler.checkpoint_lsn_last', readonly=True)
+    scheduler_checkpoint = _sm('scheduler.checkpoint')
+    scheduler_anticache_active = _sp('scheduler.anticache_active', readonly=True)
+    scheduler_anticache_asn = _sp('scheduler.anticache_asn', readonly=True)
+    scheduler_anticache_asn_last = _sp('scheduler.anticache_asn_last', readonly=True)
+    scheduler_anticache = _sp('scheduler.anticache')
+    scheduler_snapshot_active = _sp('scheduler.snapshot_active', readonly=True)
+    scheduler_snapshot_ssn = _sp('scheduler.snapshot_ssn', readonly=True)
+    scheduler_snapshot_ssn_last = _sp('scheduler.snapshot_ssn_last', readonly=True)
+    scheduler_snapshot = _sm('scheduler.snapshot')
+    scheduler_gc_active = _sm('scheduler.gc_active')
+    scheduler_gc = _sm('scheduler.gc')
+    scheduler_lru_active = _sm('scheduler.lru_active')
+    scheduler_lru = _sm('scheduler.lru')
+    scheduler_run = _sm('scheduler.run')
 
-    # Backup properties and methods.
-    backup = _sophia_method('backup.run')
-    backup_path = _sophia_property('backup.path')
-    backup_active = _sophia_property('backup.active', False)
-    backup_last = _sophia_property('backup.last', False)
-    backup_last_complete = _sophia_property('backup.last_complete', False)
+    # Compaction.
+    compaction_redzone = _sp('compaction.redzone')
+    compaction_redzone_mode = _sp('compaction.redzone.mode')
+    compaction_redzone_compact_wm = _sp('compaction.redzone.compact_wm')
+    compaction_redzone_compact_mode = _sp('compaction.redzone.compact_mode')
+    compaction_redzone_branch_prio = _sp('compaction.redzone.branch_prio')
+    compaction_redzone_branch_wm = _sp('compaction.redzone.branch_wm')
+    compaction_redzone_branch_age = _sp('compaction.redzone.branch_age')
+    compaction_redzone_branch_age_period = _sp('compaction.redzone.branch_age_period')
+    compaction_redzone_branch_age_wm = _sp('compaction.redzone.branch_age_wm')
+    compaction_redzone_anticache_period = _sp('compaction.redzone.anticache_period')
+    compaction_redzone_backup_prio = _sp('compaction.redzone.backup_prio')
+    compaction_redzone_gc_wm = _sp('compaction.redzone.gc_wm')
+    compaction_redzone_gc_db_prio = _sp('compaction.redzone.gc_db_prio')
+    compaction_redzone_gc_period = _sp('compaction.redzone.gc_period')
+    compaction_redzone_lru_prio = _sp('compaction.redzone.lru_prio')
+    compaction_redzone_lru_period = _sp('compaction.redzone.lru_period')
+    compaction_redzone_async = _sp('compaction.redzone.async')
 
-    # Sophia properites.
-    build = _sophia_property('sophia.build', readonly=True)
-    version = _sophia_property('sophia.version', readonly=True)
+    # Performance.
+    performance_documents = _sp('performance.documents', readonly=True)
+    performance_documents_used = _sp('performance.documents_used', readonly=True)
+    performance_key = _sp('performance.key', True, readonly=True)
+    performance_value = _sp('performance.value', True, readonly=True)
+    performance_set = _sp('performance.set', readonly=True)
+    performance_set_latency = _sp('performance.set_latency', True, readonly=True)
+    performance_delete = _sp('performance.delete', readonly=True)
+    performance_delete_latency = _sp('performance.delete_latency', True, readonly=True)
+    performance_get = _sp('performance.get', readonly=True)
+    performance_get_latency = _sp('performance.get_latency', True, readonly=True)
+    performance_get_read_disk = _sp('performance.get_read_disk', True, readonly=True)
+    performance_get_read_cache = _sp('performance.get_read_cache', True, readonly=True)
+    performance_tx_active_rw = _sp('performance.tx_active_rw', readonly=True)
+    performance_tx_active_ro = _sp('performance.tx_active_ro', readonly=True)
+    performance_tx = _sp('performance.tx', readonly=True)
+    performance_tx_rollback = _sp('performance.tx_rollback', readonly=True)
+    performance_tx_conflict = _sp('performance.tx_conflict', readonly=True)
+    performance_tx_lock = _sp('performance.tx_lock', readonly=True)
+    performance_tx_latency = _sp('performance.tx_latency', True, readonly=True)
+    performance_tx_ops = _sp('performance.tx_ops', True, readonly=True)
+    performance_tx_gc_queue = _sp('performance.tx_gc_queue', readonly=True)
+    performance_cursor = _sp('performance.cursor', readonly=True)
+    performance_cursor_latency = _sp('performance.cursor_latency', readonly=True)
+    performance_cursor_read_disk = _sp('performance.cursor_read_disk', readonly=True)
+    performance_cursor_read_cache = _sp('performance.cursor_read_cache', readonly=True)
+    performance_cursor_ops = _sp('performance.cursor_ops', readonly=True)
+
+    # Metric.
+    metric_lsn = _sp('metric.lsn')
+    metric_tsn = _sp('metric.tsn')
+    metric_nsn = _sp('metric.nsn')
+    metric_ssn = _sp('metric.ssn')
+    metric_asn = _sp('metric.asn')
+    metric_dsn = _sp('metric.dsn')
+    metric_bsn = _sp('metric.bsn')
+    metric_lfsn = _sp('metric.lfsn')
+
+    # WAL.
+    log_enable = _sp('log.enable')
+    log_path = _sp('log.path', True)
+    log_sync = _sp('log.sync')
+    log_rotate_wm = _sp('log.rotate_wm')
+    log_rotate_sync = _sp('log.rotate_sync')
+    log_rotate = _sm('log.rotate')
+    log_gc = _sm('log.gc')
+    log_files = _sp('log.files', readonly=True)
+
+    # Backup.
+    backup_path = _sp('backup.path', True)
+    backup_run = _sm('backup.run')
+    backup_active = _sp('backup.active')
+    backup_last = _sp('backup.last')
+    backup_last_complete = _sp('backup.last_complete')
 
 
 cdef class _BaseDBObject(_SophiaObject):
@@ -463,6 +541,8 @@ cdef class Database(_BaseDBObject):
         cdef:
             void *handle
         handle = sp_getobject(self.sophia.handle, encode('db.%s' % self.name))
+        if self.sophia.is_open:
+            sp_open(handle)
         return handle
 
     cdef _Index _get_index(self):
@@ -503,28 +583,44 @@ cdef class Database(_BaseDBObject):
             keys=keys,
             values=values)
 
-    # Database properties.
-    compression = _db_property('compression')
-    compression_key = _db_property('compression_key', False)
-    database_id = _db_property('id', False)
-    format = _db_property('format')
-    mmap = _db_property('mmap', False)
-    sync = _db_property('sync', False)
-    status = _db_property('status', readonly=True)
-
-    # Database index properties.
-    index_branch_avg = _db_property('index.branch_avg', False, True)
-    index_branch_count = _db_property('index.branch_count', False, True)
-    index_branch_max = _db_property('index.branch_max', False, True)
-    index_count = _db_property('index.count', False, True)
-    index_count_dup = _db_property('index.count_dup', False, True)
-    index_memory_used = _db_property('index.memory_used', False, True)
-    index_node_count = _db_property('index.node_count', False, True)
-    index_node_size = _db_property('index.node_size', False, True)
-    index_node_origin_size = _db_property('index.node_origin_size', False, True)
-    index_page_count = _db_property('index.page_count', False, True)
-    index_read_cache = _db_property('index.read_cache', False, True)
-    index_read_disk = _db_property('index.read_disk', False, True)
+    # key, is string?, is readonly?
+    database_id = _dbp('id')
+    status = _dbp('status', True, True)
+    storage = _dbp('storage', True)
+    format = _dbp('format', True)
+    amqf = _dbp('amqf')
+    database_path = _dbp('path', True)
+    path_fail_on_exists = _dbp('path_fail_on_exists')
+    path_fail_on_drop = _dbp('path_fail_on_drop')
+    cache_mode = _dbp('cache_mode')
+    cache = _dbp('cache', True)
+    mmap = _dbp('mmap')
+    sync = _dbp('sync')
+    node_preload = _dbp('node_preload')
+    node_size = _dbp('node_size')
+    page_size = _dbp('page_size')
+    page_checksum = _dbp('page_checksum')
+    compression_key = _dbp('compression_key')
+    compression = _dbp('compression', True)
+    compression_branch = _dbp('compression_branch', True)
+    lru = _dbp('lru')
+    lru_step = _dbp('lru_step')
+    branch = _dbm('branch')
+    compact = _dbm('compact')
+    compact_index = _dbm('compact_index')
+    index_memory_used = _dbp('index.memory_used', readonly=True)
+    index_size = _dbp('index.size', readonly=True)
+    index_size_uncompressed = _dbp('index.size_uncompressed', readonly=True)
+    index_size_snapshot = _dbp('index.size_snapshot', readonly=True)
+    index_size_amqf = _dbp('index.size_amqf', readonly=True)
+    index_count = _dbp('index.count', readonly=True)
+    index_count_dup = _dbp('index.count_dup', readonly=True)
+    index_read_disk = _dbp('index.read_disk', readonly=True)
+    index_read_cache = _dbp('index.read_cache', readonly=True)
+    index_node_count = _dbp('index.node_count', readonly=True)
+    index_branch_count = _dbp('index.branch_count', readonly=True)
+    index_branch_max = _dbp('index.branch_max', readonly=True)
+    index_page_count = _dbp('index.page_count', readonly=True)
 
 
 cdef class View(_BaseDBObject):
