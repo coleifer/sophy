@@ -3,6 +3,7 @@ import shutil
 import sys
 import unittest
 
+from sophy import SimpleDatabase
 from sophy import Sophia
 
 
@@ -18,7 +19,7 @@ class BaseTestCase(unittest.TestCase):
             shutil.rmtree(TEST_DIR)
 
         self.sophia = self.create_env()
-        self.db = self.sophia[DB_NAME]
+        self.db = self.get_db()
 
     def tearDown(self):
         self.sophia.close()
@@ -27,6 +28,37 @@ class BaseTestCase(unittest.TestCase):
 
     def create_env(self):
         return Sophia(TEST_DIR, [(DB_NAME, self._index_type)])
+
+    def get_db(self):
+        return self.sophia[DB_NAME]
+
+
+class TestSimpleDatabase(BaseTestCase):
+    def create_env(self):
+        filename = os.path.join(TEST_DIR, DB_NAME)
+        return SimpleDatabase(filename)
+
+    def get_db(self):
+        return self.sophia.dbs[DB_NAME]
+
+    def test_simple_database(self):
+        db = self.sophia
+        self.assertTrue(isinstance(db, SimpleDatabase))
+
+        db['k1'] = 'v1'
+        db['k2'] = 'v2'
+        db.update(k3='v3', k4='v4')
+
+        self.assertEqual(db['k1'], 'v1')
+        self.assertEqual(db['k2'], 'v2')
+
+        self.assertTrue('k3' in db)
+        self.assertFalse('k0' in db)
+        self.assertEqual(len(db), 4)
+
+        self.assertEqual(list(db['k2':'k33']), [
+            ('k2', 'v2'),
+            ('k3', 'v3')])
 
 
 class TestConfiguration(BaseTestCase):
