@@ -1068,10 +1068,10 @@ cdef class SimpleDatabase(Sophia):
         return self.dbs[self.db_name].update(_data, **k)
 
     cpdef transaction(self):
-        return Transaction(self.sophia, self.dbs[self.db_name])
+        return Transaction(self, self.dbs[self.db_name])
 
     cpdef view(self, name):
-        return View(self.sophia, self.dbs[self.db_name], name)
+        return View(self, self.dbs[self.db_name], name)
 
 
 def connect(data_dir, db_name, index_type=None):
