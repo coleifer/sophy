@@ -45,6 +45,10 @@ cdef bytes encode(obj):
         return obj.encode('utf-8')
     elif isinstance(obj, bytes):
         return obj
+    elif obj is None:
+        return obj
+    elif IS_PY3K:
+        return bytes(str(obj), 'utf-8')
     return bytes(obj)
 
 cdef inline _getstring(void *obj, const char *key):
@@ -537,6 +541,7 @@ cdef class Database(_BaseDBObject):
         sp_setstring(self.sophia.handle, 'db', <const char *>self.name, 0)
         self.index = self._get_index()
         self.index.configure()
+        self.mmap = 1
 
     cdef void *_create_handle(self):
         cdef:
