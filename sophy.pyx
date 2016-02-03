@@ -256,8 +256,10 @@ cdef class Sophia(_SophiaObject):
     def __getitem__(self, name):
         return self.dbs[name]
 
-    def create_database(self, name, index_type='string'):
-        self._add_db(Database(self, name, index_type), self.is_open)
+    def create_database(self, name, index_type='string', auto_open=True):
+        self._add_db(
+            Database(self, name, index_type),
+            self.is_open and auto_open)
         self.db_defs.append((name, index_type))
         return self.dbs[name]
 
