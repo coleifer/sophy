@@ -1034,66 +1034,6 @@ cdef class _MultiIndex(_Index):
         return tuple(result)
 
 
-cdef class SimpleDatabase(Sophia):
-    cdef:
-        readonly db_name
-
-    def __init__(self, filename, index_type=None, auto_open=True):
-        path = os.path.dirname(filename)
-        self.db_name = os.path.basename(filename).split('.')[0] or 'default'
-        databases = [(self.db_name, index_type or 'string')]
-        super(SimpleDatabase, self).__init__(
-            path=path,
-            databases=databases,
-            auto_open=auto_open)
-
-    def __getitem__(self, key):
-        return self.dbs[self.db_name][key]
-
-    def __setitem__(self, key, value):
-        self.dbs[self.db_name][key] = value
-
-    def __delitem__(self, key):
-        del self.dbs[self.db_name][key]
-
-    def __contains__(self, key):
-        return key in self.dbs[self.db_name]
-
-    def keys(self):
-        return self.dbs[self.db_name].keys()
-
-    def values(self):
-        return self.dbs[self.db_name].values()
-
-    def items(self):
-        return self.dbs[self.db_name].items()
-
-    def __iter__(self):
-        return iter(self.cursor())
-
-    def __len__(self):
-        return len(self.dbs[self.db_name])
-
-    def cursor(self, *args, **kwargs):
-        return self.dbs[self.db_name].cursor(*args, **kwargs)
-
-    def update(self, dict _data=None, **k):
-        return self.dbs[self.db_name].update(_data, **k)
-
-    cpdef transaction(self):
-        return Transaction(self, self.dbs[self.db_name])
-
-    cpdef view(self, name):
-        return View(self, self.dbs[self.db_name], name)
-
-
-def connect(data_dir, db_name, index_type=None):
-    cdef Sophia sophia
-    sophia = Sophia(data_dir, [(db_name, index_type)])
-    sophia.open()
-    return sophia[db_name]
-
-
 cdef dict INDEX_TYPE_MAP = {
     'string': _Index,
     'u32': _UInt32Index,
