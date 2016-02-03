@@ -10,8 +10,8 @@
 /* amalgamation build
  *
  * version:     2.1
- * build:       8eee29a
- * build date:  Sun Jan 24 21:26:51 CST 2016
+ * build:       9acedbc
+ * build date:  Tue Feb  2 22:43:20 CST 2016
  *
  * compilation:
  * cc -O2 -DNDEBUG -std=c99 -pedantic -Wall -Wextra -pthread -c sophia.c
@@ -19,7 +19,7 @@
 
 /* {{{ */
 
-#define SOPHIA_BUILD "8eee29a"
+#define SOPHIA_BUILD "9acedbc"
 
 #line 1 "sophia/std/ss_posix.h"
 #ifndef SS_POSIX_H_
@@ -9343,7 +9343,7 @@ struct sssa {
 static inline int
 ss_sagrow(sssa *s)
 {
-	register sspage *page = ss_pagerpop(s->pager);
+	sspage *page = ss_pagerpop(s->pager);
 	if (ssunlikely(page == NULL))
 		return -1;
 	page->next = s->pu;
@@ -9393,7 +9393,7 @@ ss_slabamalloc(ssa *a, int size ssunused)
 {
 	sssa *s = (sssa*)a->priv;
 	if (sslikely(s->chunk)) {
-		register sssachunk *c = s->chunk;
+		sssachunk *c = s->chunk;
 		s->chunk = c->next;
 		s->chunk_count++;
 		c->next = NULL;
@@ -9403,10 +9403,9 @@ ss_slabamalloc(ssa *a, int size ssunused)
 		if (ssunlikely(ss_sagrow(s) == -1))
 			return NULL;
 	}
-	register int off = sizeof(sspage) +
+	int off = sizeof(sspage) +
 		s->chunk_used * (sizeof(sssachunk) + s->chunk_size);
-	register sssachunk *n =
-		(sssachunk*)((char*)s->pu + off);
+	sssachunk *n = (sssachunk*)((char*)s->pu + off);
 	s->chunk_used++;
 	s->chunk_count++;
 	n->next = NULL;
@@ -9417,8 +9416,7 @@ sshot static inline void
 ss_slabafree(ssa *a, void *ptr)
 {
 	sssa *s = (sssa*)a->priv;
-	register sssachunk *c =
-		(sssachunk*)((char*)ptr - sizeof(sssachunk));
+	sssachunk *c = (sssachunk*)((char*)ptr - sizeof(sssachunk));
 	c->next = s->chunk;
 	s->chunk = c;
 	s->chunk_count--;
@@ -17269,10 +17267,8 @@ sv_writeiter_upsert(svwriteiter *i)
 			break;
 		/* stop forming upserts on a second non-upsert stmt,
 		 * but continue to iterate stream */
-		if (last_non_upd) {
-			assert(! sv_is(v, SVUPSERT));
+		if (last_non_upd)
 			continue;
-		}
 		last_non_upd = ! sv_isflags(flags, SVUPSERT);
 		int rc = sv_upsertpush(i->u, i->r, v);
 		if (ssunlikely(rc == -1))
@@ -17343,13 +17339,14 @@ sv_writeiter_next(ssiter *i)
 		}
 
 		/* upsert */
-		if (im->upsert) {
+		if (sv_isflags(flags, SVUPSERT)) {
 			if (! im->save_upsert) {
 				if (lsn <= im->vlsn) {
 					int rc;
 					rc = sv_writeiter_upsert(im);
 					if (ssunlikely(rc == -1))
 						return;
+					im->upsert = 0;
 					im->prevlsn = lsn;
 					im->v = &im->u->result;
 					im->vdup = dup;
@@ -28189,7 +28186,7 @@ int si_schemedeploy(sischeme *s, sr *r)
 		return -1;
 	char path[PATH_MAX];
 	snprintf(path, sizeof(path), "%s/scheme", s->path);
-	rc = sd_schemewrite(&c, r, path, s->sync);
+	rc = sd_schemewrite(&c, r, path, 0);
 	sd_schemefree(&c, r);
 	return rc;
 error:
@@ -29080,6 +29077,7 @@ struct seconf {
 	uint32_t      log_rotate_wm;
 	uint32_t      log_rotate_sync;
 	srscheme      scheme;
+	int           confmax;
 	srconf       *conf;
 	so           *env;
 };
@@ -29948,7 +29946,6 @@ so *se_new(void)
 	ss_pagerinit(&e->pager, &e->vfs, 10, 8192);
 	ss_aopen(&e->a, &ss_stda);
 	ss_aopen(&e->a_ref, &ss_stda);
-	/*ss_aopen(&e->a_ref, &ss_slaba_lock, &e->pager_ref, sizeof(svref));*/
 	ss_aopen(&e->a_db, &ss_slaba, &e->pager, sizeof(sedb));
 	ss_aopen(&e->a_document, &ss_slaba, &e->pager, sizeof(sedocument));
 	ss_aopen(&e->a_cursor, &ss_slaba, &e->pager, sizeof(secursor));
@@ -30965,8 +30962,30 @@ se_confrt(se *e, seconfrt *rt)
 	return 0;
 }
 
+static inline int
+se_confensure(seconf *c)
+{
+	se *e = (se*)c->env;
+	int confmax = 2048 + (e->db.n * 100) + (e->view.n * 10) +
+	              c->threads;
+	confmax *= sizeof(srconf);
+	if (sslikely(confmax <= c->confmax))
+		return 0;
+	srconf *cptr = ss_malloc(&e->a, confmax);
+	if (ssunlikely(cptr == NULL))
+		return sr_oom(&e->error);
+	ss_free(&e->a, c->conf);
+	c->conf = cptr;
+	c->confmax = confmax;
+	return 0;
+}
+
 int se_confserialize(seconf *c, ssbuf *buf)
 {
+	int rc;
+	rc = se_confensure(c);
+	if (ssunlikely(rc == -1))
+		return -1;
 	se *e = (se*)c->env;
 	seconfrt rt;
 	se_confrt(e, &rt);
@@ -30991,6 +31010,10 @@ se_confquery(se *e, int op, const char *path,
              sstype valuetype, void *value, int valuesize,
              int *size)
 {
+	int rc;
+	rc = se_confensure(&e->conf);
+	if (ssunlikely(rc == -1))
+		return -1;
 	seconfrt rt;
 	se_confrt(e, &rt);
 	srconf *conf = e->conf.conf;
@@ -31006,7 +31029,7 @@ se_confquery(se *e, int op, const char *path,
 		.ptr       = e,
 		.r         = &e->r
 	};
-	int rc = sr_confexec(root, &stmt);
+	rc = sr_confexec(root, &stmt);
 	if (size)
 		*size = stmt.valuesize;
 	return rc;
@@ -31066,7 +31089,8 @@ int64_t se_confget_int(so *o, const char *path)
 int se_confinit(seconf *c, so *e)
 {
 	se *o = se_of(e);
-	c->conf = ss_malloc(&o->a, sizeof(srconf) * 1024);
+	c->confmax = 2048;
+	c->conf = ss_malloc(&o->a, sizeof(srconf) * c->confmax);
 	if (ssunlikely(c->conf == NULL))
 		return -1;
 	sr_schemeinit(&c->scheme);
@@ -33835,12 +33859,13 @@ int se_scheduler_run(sescheduler *s)
 static int
 se_schedule_plan(sescheduler *s, siplan *plan, sedb **dbret)
 {
+	if (s->rr >= s->count)
+		s->rr = 0;
 	int start = s->rr;
 	int limit = s->count;
 	int i = start;
 	int rc_inprogress = 0;
 	int rc;
-	*dbret = NULL;
 first_half:
 	while (i < limit) {
 		sedb *db = s->i[i];
@@ -33851,8 +33876,8 @@ first_half:
 		rc = si_plan(&db->index, plan);
 		switch (rc) {
 		case 1:
-			s->rr = i;
 			*dbret = db;
+			s->rr = i + 1;
 			return 1;
 		case 2: rc_inprogress = rc;
 		case 0: break;
@@ -33876,7 +33901,7 @@ se_schedule(sescheduler *s, setask *task, seworker *w)
 
 	uint64_t now = ss_utime();
 	se *e = (se*)s->env;
-	sedb *db;
+	sedb *db = NULL;
 	srzone *zone = se_zoneof(e);
 	assert(zone != NULL);
 

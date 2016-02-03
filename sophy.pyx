@@ -1089,6 +1089,9 @@ def connect(data_dir, db_name, index_type=None):
 cdef dict INDEX_TYPE_MAP = {
     'string': _Index,
     'u32': _UInt32Index,
+    'u32rev': _UInt32RevIndex,
+    'u64': _UInt64Index,
+    'u64rev': _UInt64RevIndex,
 }
 
 """ADD: # cython: profile=True to top of file to use with cProfile."""
