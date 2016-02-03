@@ -206,7 +206,7 @@ cdef class Sophia(_SophiaObject):
         if self.handle:
             sp_destroy(self.handle)
 
-    cpdef bint open(self):
+    cpdef open(self):
         if self.is_open:
             return False
 
@@ -236,7 +236,7 @@ cdef class Sophia(_SophiaObject):
         if open_database:
             db_obj.open(configure=False)
 
-    cpdef bint close(self):
+    cpdef close(self):
         if not self.is_open:
             return False
 
@@ -245,6 +245,13 @@ cdef class Sophia(_SophiaObject):
         self.handle = sp_env()
         self.is_open = False
         return True
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def __getitem__(self, name):
         return self.dbs[name]
@@ -380,7 +387,7 @@ cdef class _BaseDBObject(_SophiaObject):
     cdef configure(self):
         self.index = self._get_index()
 
-    cpdef bint open(self, bint configure=True):
+    cpdef open(self, bint configure=True):
         if self.handle:
             return False
 
@@ -392,11 +399,12 @@ cdef class _BaseDBObject(_SophiaObject):
             raise MemoryError('Unable to allocate object: %s.' % self)
         return True
 
-    cpdef bint close(self):
+    cpdef close(self):
         if not self.handle:
             return False
 
-        self.destroy()
+        if self.sophia.handle:
+            self.destroy()
         return True
 
     cdef void *_create_handle(self):
@@ -524,16 +532,16 @@ cdef class Database(_BaseDBObject):
         self.config = self.sophia.config
 
     def __dealloc__(self):
-        if self.sophia.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
 
-    cpdef bint close(self):
+    cpdef close(self):
         if self.sophia.is_open:
             raise CannotCloseException()
         return False
 
     cdef destroy(self):
-        if self.sophia.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
             self.handle = <void *>0
 
@@ -642,13 +650,13 @@ cdef class View(_BaseDBObject):
         self.open()
 
     def __dealloc__(self):
-        if self.sophia.handle and self.db.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
 
     cdef destroy(self):
-        if self.sophia.handle and self.db.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
-            self.handle = <void *>0
+        self.handle = <void *>0
 
     cdef void *_create_handle(self):
         sp_setstring(self.sophia.handle, 'view', <char *>self.name, 0)
@@ -684,7 +692,7 @@ cdef class Transaction(_BaseDBObject):
         self.db = db
 
     def __dealloc__(self):
-        if self.sophia.handle and self.db.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
 
     cdef void *_create_handle(self):
@@ -755,7 +763,7 @@ cdef class Cursor(_SophiaObject):
         if self.current_item:
             sp_destroy(self.current_item)
 
-        if self.sophia.handle and self.db.handle and self.handle:
+        if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
 
     def __iter__(self):
@@ -913,7 +921,7 @@ cdef class _UInt32Index(_Index):
 
 
 cdef class _UInt32RevIndex(_UInt32Index):
-    index_type = 'u32rev'
+    index_type = 'u32_rev'
 
 
 cdef class _UInt64Index(_Index):
@@ -941,7 +949,7 @@ cdef class _UInt64Index(_Index):
 
 
 cdef class _UInt64RevIndex(_UInt64Index):
-    index_type = 'u64rev'
+    index_type = 'u64_rev'
 
 
 cdef class _MultiIndex(_Index):
@@ -1089,9 +1097,9 @@ def connect(data_dir, db_name, index_type=None):
 cdef dict INDEX_TYPE_MAP = {
     'string': _Index,
     'u32': _UInt32Index,
-    'u32rev': _UInt32RevIndex,
+    'u32_rev': _UInt32RevIndex,
     'u64': _UInt64Index,
-    'u64rev': _UInt64RevIndex,
+    'u64_rev': _UInt64RevIndex,
 }
 
 """ADD: # cython: profile=True to top of file to use with cProfile."""

@@ -121,6 +121,18 @@ class BaseSophiaTestMethods(object):
         self.assertEqual(db[self.k1], 'v1')
         self.assertEqual(db[self.k2], 'v2')
 
+        db[self.k2] = 'v2-e'
+        self.sophia.close()
+
+        self.assertIsNone(db.status)
+
+        with self.sophia as env:
+            db = env[self.db.name]
+            self.assertEqual(db.status, 'online')
+            self.assertEqual(db[self.k1], 'v1')
+            self.assertEqual(db[self.k2], 'v2-e')
+
+
     def test_collections(self):
         self.db[self.k1] = 'v1'
         self.db[self.k2] = 'v2'
@@ -455,6 +467,10 @@ class TestU32Index(BaseSophiaTestMethods, BaseTestCase):
 
         self.r3_1 = 9
         self.r5_1 = 15
+
+
+class TestU64Index(TestU32Index):
+    _index_type = 'u64'
 
 
 class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
