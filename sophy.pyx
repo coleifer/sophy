@@ -1,10 +1,12 @@
 from cpython.bytes cimport PyBytes_AsStringAndSize
-from libc.stdlib cimport malloc
+from cpython.bytes cimport PyBytes_Check
+from cpython.mem cimport PyMem_Free
+from cpython.mem cimport PyMem_Malloc
+from cpython.unicode cimport PyUnicode_AsUTF8String
+from cpython.version cimport PY_MAJOR_VERSION
 from libc.stdint cimport int64_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
-import os
-import sys
 
 from functools import wraps
 
@@ -38,18 +40,21 @@ cdef extern from "src/sophia.h":
     cdef int sp_prepare(void *)
     cdef int sp_commit(void *)
 
-cdef bint IS_PY3K = sys.version_info[0] == 3
+cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
-cdef bytes encode(obj):
+cdef inline bytes encode(obj):
+    cdef bytes result
     if isinstance(obj, unicode):
-        return obj.encode('utf-8')
-    elif isinstance(obj, bytes):
-        return obj
+        result = PyUnicode_AsUTF8String(obj)
+    elif PyBytes_Check(obj):
+        result = <bytes>obj
     elif obj is None:
-        return obj
+        return None
     elif IS_PY3K:
-        return bytes(str(obj), 'utf-8')
-    return bytes(obj)
+        result = bytes(str(obj), 'utf-8')
+    else:
+        result = bytes(obj)
+    return result
 
 cdef inline _getstring(void *obj, const char *key):
     cdef:
@@ -906,7 +911,7 @@ cdef class _UInt32Index(_Index):
 
     cdef set_key(self, void *obj, key):
         cdef:
-            uint32_t* key_ptr = <uint32_t*>malloc(sizeof(uint32_t))
+            uint32_t* key_ptr = <uint32_t*>PyMem_Malloc(sizeof(uint32_t))
             Py_ssize_t klen = sizeof(uint32_t)
 
         key_ptr[0] = <uint32_t>key
@@ -934,7 +939,7 @@ cdef class _UInt64Index(_Index):
 
     cdef set_key(self, void *obj, key):
         cdef:
-            uint64_t* key_ptr = <uint64_t*>malloc(sizeof(uint64_t))
+            uint64_t* key_ptr = <uint64_t*>PyMem_Malloc(sizeof(uint64_t))
             Py_ssize_t klen = sizeof(uint64_t)
 
         key_ptr[0] = <uint64_t>key
