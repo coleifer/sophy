@@ -57,8 +57,8 @@ The next section will show how to perform common actions with `sophy`.
 To begin, I've opened a Python terminal and instantiated a Sophia environment with one database (an environment can have multiple databases, though). When I called `create_database()` I specified my key/value store's name and index type, `"string"`.
 
 ```pycon
->>> from sophy import Sophy
->>> env = Sophy('/path/to/data-dir')
+>>> from sophy import Sophia
+>>> env = Sophia('/path/to/data-dir')
 >>> db = env.create_database('mydb', 'string')  # Create a new KV store.
 ```
 
