@@ -97,17 +97,17 @@ def _sm(propname):
 
 def _dbp(prop, string=False, readonly=False):
     def _getter(self):
-        return self.config.get_option('db.%s.%s' % (self.name, prop), string)
+        return self.config.get_option('db.%s.%s' % (self.s_name, prop), string)
     if readonly:
         return property(_getter)
     else:
         def _setter(self, value):
-            self.config.set_option('db.%s.%s' % (self.name, prop), value)
+            self.config.set_option('db.%s.%s' % (self.s_name, prop), value)
         return property(_getter, _setter)
 
 def _dbm(propname):
     def _method(self):
-        self.config.set_option('db.%s.%s' % (self.name, propname), 0)
+        self.config.set_option('db.%s.%s' % (self.s_name, propname), 0)
     return _method
 
 
@@ -236,7 +236,7 @@ cdef class Sophia(_SophiaObject):
         return True
 
     cdef _add_db(self, Database db_obj, open_database=False):
-        self.dbs[db_obj.name] = db_obj
+        self.dbs[db_obj.s_name] = db_obj
         db_obj.configure()
         if open_database:
             db_obj.open(configure=False)
@@ -524,9 +524,11 @@ cdef class Database(_BaseDBObject):
     cdef:
         readonly bytes name
         readonly _ConfigManager config
+        readonly str s_name
         tuple index_type
 
     def __cinit__(self, Sophia sophia, name, index_type=None):
+        self.s_name = name
         self.name = encode(name)
 
         if not index_type:
@@ -561,7 +563,8 @@ cdef class Database(_BaseDBObject):
     cdef void *_create_handle(self):
         cdef:
             void *handle
-        handle = sp_getobject(self.sophia.handle, encode('db.%s' % self.name))
+        handle = sp_getobject(self.sophia.handle,
+                              encode('db.%s' % self.s_name))
         if self.sophia.is_open:
             sp_open(handle)
         return handle
@@ -648,9 +651,11 @@ cdef class View(_BaseDBObject):
     cdef:
         Database db
         bytes name
+        str s_name
 
     def __cinit__(self, Sophia sophia, Database db, name):
         self.db = db
+        self.s_name = name
         self.name = encode(name)
 
     def __init__(self, Sophia sophia, Database db, name):
@@ -667,7 +672,8 @@ cdef class View(_BaseDBObject):
 
     cdef void *_create_handle(self):
         sp_setstring(self.sophia.handle, 'view', <char *>self.name, 0)
-        return sp_getobject(self.sophia.handle, encode('view.%s' % self.name))
+        return sp_getobject(self.sophia.handle,
+                            encode('view.%s' % self.s_name))
 
     cdef _Index _get_index(self):
         return self.db.index
@@ -818,6 +824,7 @@ cdef class _Index(object):
         bytes b_path, b_type
         bytes key
         object empty_value
+        str s_key
         tuple keys
 
     index_type = 'string'
@@ -825,9 +832,10 @@ cdef class _Index(object):
     def __cinit__(self, Sophia sophia, Database db, key='key', **_):
         self.sophia = sophia
         self.db = db
+        self.s_key = key
         self.key = encode(key)
         self.keys = (self.key,)
-        self.b_path = encode('db.%s.index.%s' % (db.name, key))
+        self.b_path = encode('db.%s.index.%s' % (db.name, self.s_key))
         self.b_type = encode(self.index_type)
 
     def __init__(self, Sophia sophia, Database db, key='key', **_):
@@ -1003,7 +1011,7 @@ cdef class _MultiIndex(_Index):
 
     cdef configure(self):
         cdef:
-            bytes db_idx_path = encode('db.%s.index' % self.db.name)
+            bytes db_idx_path = encode('db.%s.index' % self.db.s_name)
             _Index index
             bindex_type
 
