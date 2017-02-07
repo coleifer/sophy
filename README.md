@@ -14,7 +14,7 @@ Features:
 * Fast Range searches
 * Read-only, point-in-time Views
 * Prefix searches
-* Python 2.x and 3.x
+* Python 2.x only at the moment, but 3.x is coming.
 
 Limitations:
 
