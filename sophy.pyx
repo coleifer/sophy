@@ -14,31 +14,22 @@ from functools import wraps
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
     cdef void *sp_document(void *)
-
-    cdef int sp_open(void *)
-    cdef int sp_drop(void *)
-    cdef int sp_destroy(void *)
-    cdef int sp_error(void *)
-
-    cdef void *sp_asynchronous(void *)
-    cdef void *sp_poll(void*)
-
     cdef int sp_setstring(void*, const char*, const void*, int)
     cdef int sp_setint(void*, const char*, int64_t)
-
     cdef void *sp_getobject(void*, const char*)
     cdef void *sp_getstring(void*, const char*, int*)
     cdef int64_t sp_getint(void*, const char*)
-
+    cdef int sp_open(void *)
+    cdef int sp_destroy(void *)
     cdef int sp_set(void*, void*)
     cdef int sp_upsert(void*, void*)
     cdef int sp_delete(void*, void*)
     cdef void *sp_get(void*, void*)
-
     cdef void *sp_cursor(void*)
     cdef void *sp_begin(void *)
     cdef int sp_prepare(void *)
     cdef int sp_commit(void *)
+
 
 cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
@@ -210,6 +201,7 @@ cdef class Sophia(_SophiaObject):
     def __dealloc__(self):
         if self.handle:
             sp_destroy(self.handle)
+            self.handle = NULL
 
     cpdef open(self):
         if self.is_open:
@@ -543,6 +535,7 @@ cdef class Database(_BaseDBObject):
     def __dealloc__(self):
         if self.sophia.is_open and self.sophia.handle and self.handle:
             sp_destroy(self.handle)
+            self.handle = NULL
 
     cpdef close(self):
         if self.sophia.is_open:
