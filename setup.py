@@ -31,5 +31,5 @@ setup(
     description='Python bindings for the sophia database.',
     author='Charles Leifer',
     author_email='',
-    ext_modules=cythonize(sophy),
+    ext_modules=cythonize([sophy]),
 )
