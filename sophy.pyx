@@ -6,6 +6,8 @@ from cpython.unicode cimport PyUnicode_AsUTF8String
 from cpython.version cimport PY_MAJOR_VERSION
 from libc.stdlib cimport free
 from libc.stdint cimport int64_t
+from libc.stdint cimport uint8_t
+from libc.stdint cimport uint16_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
@@ -196,13 +198,51 @@ cdef class StringIndex(BaseIndex):
         buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
         if buf:
             value = buf[:buflen - 1]
-            #free(buf)
             if IS_PY3K:
                 try:
                     return value.decode('utf-8')
                 except UnicodeDecodeError:
                     pass
             return value
+
+
+cdef class U64Index(BaseIndex):
+    data_type = SCHEMA_U64
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            uint64_t ival = <uint64_t>value
+        sp_setint(obj, <const char *>self.name, ival)
+
+    cdef get_key(self, void *obj):
+        return sp_getint(obj, <const char *>self.name)
+
+
+cdef class U32Index(U64Index):
+    data_type = SCHEMA_U32
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            uint32_t ival = <uint32_t>value
+        sp_setint(obj, <const char *>self.name, ival)
+
+
+cdef class U16Index(U64Index):
+    data_type = SCHEMA_U16
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            uint16_t ival = <uint16_t>value
+        sp_setint(obj, <const char *>self.name, ival)
+
+
+cdef class U8Index(U64Index):
+    data_type = SCHEMA_U8
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            uint8_t ival = <uint8_t>value
+        sp_setint(obj, <const char *>self.name, ival)
 
 
 cdef class Schema(object):
@@ -289,11 +329,9 @@ cdef class Database(object):
 
         self.schema.set_key(doc, key)
         result = sp_get(self.db, doc)
-        if result:
-            print 'GOT RESULT'
-            data = self.schema.get_value(result)
-            sp_destroy(result)
-        else:
-            print 'NO RESULT'
-            data = None
+        if not result:
+            return
+
+        data = self.schema.get_value(result)
+        sp_destroy(result)
         return data
