@@ -245,6 +245,19 @@ cdef class U8Index(U64Index):
         sp_setint(obj, <const char *>self.name, ival)
 
 
+cdef class U64RevIndex(U64Index):
+    data_type = SCHEMA_U64_REV
+
+cdef class U32RevIndex(U32Index):
+    data_type = SCHEMA_U32_REV
+
+cdef class U16RevIndex(U16Index):
+    data_type = SCHEMA_U16_REV
+
+cdef class U8RevIndex(U8Index):
+    data_type = SCHEMA_U8_REV
+
+
 cdef class Schema(object):
     cdef:
         list key
