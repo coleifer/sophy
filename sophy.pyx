@@ -34,6 +34,13 @@ cdef extern from "src/sophia.h":
     cdef int sp_commit(void *)
 
 
+class SophiaError(Exception): pass
+
+cdef class Environment(object)
+cdef class Schema(object)
+cdef class Transaction(object)
+
+
 cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
 cdef inline bytes encode(obj):
@@ -77,15 +84,101 @@ cdef inline check_open(Environment env):
     if not env.is_open:
         raise SophiaError('Sophia environment is closed.')
 
-class SophiaError(Exception): pass
 
-cdef class Schema(object)
-cdef class Transaction(object)
+cdef class Configuration(object):
+    cdef:
+        dict settings
+        Environment env
+
+    def __cinit__(self, Environment env):
+        self.env = env
+        self.settings = {}
+
+    def set_option(self, key, value):
+        self.settings[key] = value
+        if self.env.is_open:
+            self._set(key, value)
+
+    def get_option(self, key, is_string=True):
+        check_open(self.env)
+        if is_string:
+            return _getstring(self.env.env, key)
+        else:
+            bkey = encode(key)
+            return sp_getint(self.env.env, <const char *>key)
+
+    cdef clear_option(self, key):
+        try:
+            del self.settings[key]
+        except KeyError:
+            pass
+
+    cdef int _set(self, key, value) except -1:
+        cdef:
+            bytes bkey = encode(key)
+            int rc
+
+        if isinstance(value, bool):
+            value = value and 1 or 0
+        if isinstance(value, int):
+            rc = sp_setint(self.env.env, <const char *>bkey, <int>value)
+        elif isinstance(value, basestring):
+            bvalue = encode(value)
+            rc = sp_setstring(self.env.env, <const char *>bkey,
+                              <const char *>bvalue, 0)
+        else:
+            raise Exception('Setting value must be bool, int or string.')
+
+        if rc == -1:
+            error = _getstring(self.env.env, 'sophia.error')
+            if error:
+                raise SophiaError(error)
+            else:
+                raise SophiaError('unknown error occurred.')
+        return rc
+
+    cdef configure(self):
+        for key, value in self.settings.items():
+            self._set(key, value)
+
+
+def __config__(name, is_string=False, is_readonly=False):
+    def _getter(self):
+        return self.config.get_option(name, is_string)
+    if is_readonly:
+        return property(_getter)
+    def _setter(self, value):
+        self.config.set_option(name, value)
+    return property(_getter, _setter)
+
+def __config_ro__(name, is_string=False):
+    return __config__(name, is_string, True)
+
+def __operation__(name):
+    def _method(self):
+        self.config.set_option(name, 0)
+    return _method
+
+def __dbconfig__(name, is_string=False, is_readonly=False):
+    def _getter(self):
+        uname = self.name.decode('utf-8')
+        return self.env.config.get_option('db.%s.%s' % (uname, name))
+    if is_readonly:
+        return property(_getter)
+    def _setter(self, value):
+        uname = self.name.decode('utf-8')
+        self.env.config.set_option('db.%s.%s' % (uname, name), value)
+    return property(_getter, _setter)
+
+def __dbconfig_ro__(name, is_string=False):
+    return __dbconfig__(name, is_string, True)
+
 
 
 cdef class Environment(object):
     cdef:
         bint is_open
+        readonly Configuration config
         list databases
         readonly bytes path
         Transaction _transaction
@@ -95,6 +188,7 @@ cdef class Environment(object):
         self.env = <void *>0
 
     def __init__(self, path):
+        self.config = Configuration(self)
         self.is_open = False
         self.databases = []
         self.path = encode(path)
@@ -137,6 +231,8 @@ cdef class Environment(object):
         for db in self.databases:
             self.configure_database(db)
 
+        self.config.configure()
+
         cdef int rc = sp_open(self.env)
         _check(self.env, rc)
 
@@ -160,6 +256,49 @@ cdef class Environment(object):
 
     cpdef Transaction transaction(self):
         return Transaction(self)
+
+    version = __config_ro__('sophia.version', is_string=True)
+    version_storage = __config_ro__('sophia.version_storage', is_string=True)
+    build = __config_ro__('sophia.build', is_string=True)
+    status = __config_ro__('sophia.status', is_string=True)
+    errors = __config_ro__('sophia.errors')
+    error = __config_ro__('sophia.error', is_string=True)
+
+    backup_path = __config__('backup.path', is_string=True)
+    backup_run = __operation__('backup.run')
+    backup_active = __config_ro__('backup.active')
+    backup_last = __config_ro__('backup.last')
+    backup_last_complete = __config_ro__('backup.last_complete')
+
+    scheduler_threads = __config__('scheduler.threads')
+    scheduler_trace = __config_ro__('scheduler.id.trace', is_string=True)
+
+    transaction_online_rw = __config_ro__('transaction.online_rw')
+    transaction_online_ro = __config_ro__('transaction.online_ro')
+    transaction_commit = __config_ro__('transaction.commit')
+    transaction_rollback = __config_ro__('transaction.rollback')
+    transaction_conflict = __config_ro__('transaction.conflict')
+    transaction_lock = __config_ro__('transaction.lock')
+    transaction_latency = __config_ro__('transaction.latency', is_string=True)
+    transaction_log = __config_ro__('transaction.log', is_string=True)
+    transaction_vlsn = __config_ro__('transaction.vlsn')
+    transaction_gc = __config_ro__('transaction.gc')
+
+    metric_lsn = __config_ro__('metric.lsn')
+    metric_tsn = __config_ro__('metric.tsn')
+    metric_nsn = __config_ro__('metric.nsn')
+    metric_dsn = __config_ro__('metric.dsn')
+    metric_bsn = __config_ro__('metric.bsn')
+    metric_lfsn = __config_ro__('metric.lfsn')
+
+    log_enable = __config__('log.enable')
+    log_path = __config__('log.path', is_string=True)
+    log_sync = __config__('log.sync')
+    log_rotate_wm = __config__('log.rotate_wm')
+    log_rotate_sync = __config__('log.rotate_sync')
+    log_rotate = __operation__('log.rotate')
+    log_gc = __operation__('log.gc')
+    log_files = __config_ro__('log.files')
 
 
 cdef class Transaction(object):
