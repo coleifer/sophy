@@ -73,6 +73,11 @@ cdef inline _check(void *env, int rc):
         else:
             raise Exception('unknown error occurred.')
 
+cdef inline check_open(Environment env):
+    if not env.is_open:
+        raise SophiaError('Sophia environment is closed.')
+
+class SophiaError(Exception): pass
 
 cdef class Schema(object)
 
@@ -171,11 +176,8 @@ cdef class BaseIndex(object):
     def __init__(self, name):
         self.name = encode(name)
 
-    cdef set_key(self, void *obj, value):
-        pass
-
-    cdef get_key(self, void *obj):
-        pass
+    cdef set_key(self, void *obj, value): pass
+    cdef get_key(self, void *obj): pass
 
 
 cdef class StringIndex(BaseIndex):
@@ -191,19 +193,7 @@ cdef class StringIndex(BaseIndex):
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
 
     cdef get_key(self, void *obj):
-        cdef:
-            char *buf
-            int buflen
-
-        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
-        if buf:
-            value = buf[:buflen - 1]
-            if IS_PY3K:
-                try:
-                    return value.decode('utf-8')
-                except UnicodeDecodeError:
-                    pass
-            return value
+        return _getstring(obj, <const char *>self.name)
 
 
 cdef class U64Index(BaseIndex):
@@ -260,6 +250,7 @@ cdef class U8RevIndex(U8Index):
 
 cdef class Schema(object):
     cdef:
+        bint multi_key, multi_value
         list key
         list value
 
@@ -278,9 +269,11 @@ cdef class Schema(object):
 
     def add_key(self, BaseIndex index):
         self.key.append(index)
+        self.multi_key = len(self.key) != 1
 
     def add_value(self, BaseIndex index):
         self.value.append(index)
+        self.multi_value = len(self.key) != 1
 
     cdef set_key(self, void *obj, tuple parts):
         cdef:
@@ -305,7 +298,6 @@ cdef class Schema(object):
 
         for index in self.value:
             accum.append(index.get_key(obj))
-
         return tuple(accum)
 
 
@@ -327,7 +319,7 @@ cdef class Database(object):
     def __dealloc__(self):
         self.db = <void *>0
 
-    def store(self, tuple key, tuple value):
+    cdef _set(self, tuple key, tuple value):
         cdef:
             void *doc = sp_document(self.db)
 
@@ -335,7 +327,7 @@ cdef class Database(object):
         self.schema.set_value(doc, value)
         sp_set(self.db, doc)
 
-    def get(self, tuple key):
+    cdef tuple _get(self, tuple key):
         cdef:
             void *doc = sp_document(self.db)
             void *result
@@ -348,3 +340,48 @@ cdef class Database(object):
         data = self.schema.get_value(result)
         sp_destroy(result)
         return data
+
+    cdef bint _exists(self, tuple key):
+        cdef:
+            void *doc = sp_document(self.db)
+            void *result
+
+        self.schema.set_key(doc, key)
+        result = sp_get(self.db, doc)
+        if result:
+            sp_destroy(result)
+            return True
+        else:
+            return False
+
+    cdef bint _delete(self, tuple key):
+        cdef:
+            void *doc = sp_document(self.db)
+
+        self.schema.set_key(doc, key)
+        return sp_delete(self.db, doc) == 0
+
+    def __getitem__(self, key):
+        check_open(self.env)
+        if isinstance(key, slice):
+            pass
+        else:
+            key = (key,) if not isinstance(key, tuple) else key
+            data = self._get(key)
+            if data is None:
+                raise KeyError(key)
+            return data if self.schema.multi_value else data[0]
+
+    def __setitem__(self, key, value):
+        check_open(self.env)
+        key = (key,) if not isinstance(key, tuple) else key
+        value = (value,) if not isinstance(value, tuple) else value
+        self._set(key, value)
+
+    def __delitem__(self, key):
+        check_open(self.env)
+        self._delete((key,) if not isinstance(key, tuple) else key)
+
+    def __contains__(self, key):
+        check_open(self.env)
+        return self._exists((key,) if not isinstance(key, tuple) else key)
