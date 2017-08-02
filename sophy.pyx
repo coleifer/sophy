@@ -355,6 +355,15 @@ cdef class Schema(object):
         for i, index in enumerate(self.key):
             index.set_key(obj, parts[i])
 
+    cdef get_key(self, void *obj):
+        cdef:
+            BaseIndex index
+            list accum = []
+
+        for index in self.key:
+            accum.append(index.get_key(obj))
+        return tuple(accum)
+
     cdef set_value(self, void *obj, tuple parts):
         cdef:
             BaseIndex index
@@ -431,20 +440,17 @@ cdef class Database(object):
         if result:
             sp_destroy(result)
             return True
-        else:
-            return False
+        return False
 
     cdef bint _delete(self, tuple key):
-        cdef:
-            void *doc = sp_document(self.db)
-
+        cdef void *doc = sp_document(self.db)
         self.schema.set_key(doc, key)
         return sp_delete(self._get_target(), doc) == 0
 
     def __getitem__(self, key):
         check_open(self.env)
         if isinstance(key, slice):
-            pass
+            return self.get_range(key.start, key.stop, key.step)
         else:
             key = (key,) if not isinstance(key, tuple) else key
             data = self._get(key)
@@ -465,3 +471,150 @@ cdef class Database(object):
     def __contains__(self, key):
         check_open(self.env)
         return self._exists((key,) if not isinstance(key, tuple) else key)
+
+    cdef _update(self, dict _data, dict k):
+        cdef tuple tkey, tvalue
+        for source in (_data, k):
+            if not source: continue
+            for key in source:
+                tkey = (key,) if not isinstance(key, tuple) else key
+                value = source[key]
+                tvalue = (value,) if not isinstance(value, tuple) else value
+                self._set(tkey, tvalue)
+
+    def update(self, dict _data=None, **kwargs):
+        check_open(self.env)
+        if self.env._transaction:
+            self._update(_data, kwargs)
+        else:
+            with self.env.transaction():
+                self._update(_data, kwargs)
+
+    def multi_get(self, *keys):
+        cdef dict accum = {}
+        for key in keys:
+            try:
+                accum[key] = self[key]
+            except KeyError:
+                accum[key] = None
+        return accum
+
+    def get_range(self, start=None, stop=None, reverse=False):
+        cdef Cursor cursor
+        first = start is None
+        last = stop is None
+        if reverse:
+            if (first and not last) or (last and not first):
+                start, stop = stop, start
+            if (not first and not last) and (start < stop):
+                start, stop = stop, start
+        elif (not first and not last) and (start > stop):
+            reverse = True
+
+        order = '<=' if reverse else '>='
+        cursor = self.cursor(order=order, key=start)
+        for key, value in cursor:
+            if stop:
+                if reverse and key < stop:
+                    raise StopIteration
+                elif not reverse and key > stop:
+                    raise StopIteration
+
+            yield (key, value)
+
+    def keys(self):
+        return self.cursor(values=False)
+
+    def values(self):
+        return self.cursor(keys=False)
+
+    def items(self):
+        return self.cursor()
+
+    def __iter__(self):
+        return iter(self.cursor())
+
+    def __len__(self):
+        cdef:
+            int i = 0
+            Cursor curs = self.cursor(keys=False, values=False)
+        for _ in curs: i += 1
+        return i
+
+    cpdef Cursor cursor(self, order='>=', key=None, prefix=None, keys=True,
+                        values=True):
+        check_open(self.env)
+        return Cursor(db=self, order=order, key=key, prefix=prefix, keys=keys,
+                      values=values)
+
+
+cdef class Cursor(object):
+    cdef:
+        Database db
+        readonly bint keys
+        readonly bint values
+        readonly bytes order
+        readonly bytes prefix
+        readonly key
+        void *current_item
+        void *cursor
+
+    def __cinit__(self, Database db, order='>=', key=None, prefix=None,
+                  keys=True, values=True):
+        self.db = db
+        self.order = encode(order)
+        if key:
+            self.key = (key,) if not isinstance(key, tuple) else key
+        self.prefix = encode(prefix) if prefix else None
+        self.keys = keys
+        self.values = values
+        self.current_item = <void *>0
+        self.cursor = <void *>0
+
+    def __dealloc__(self):
+        if not self.db.env.is_open:
+            return
+
+        if self.current_item:
+            sp_destroy(self.current_item)
+        if self.cursor:
+            sp_destroy(self.cursor)
+
+    def __iter__(self):
+        check_open(self.db.env)
+        if self.cursor:
+            sp_destroy(self.cursor)
+            self.cursor = <void *>0
+
+        self.cursor = sp_cursor(self.db.env.env)
+        self.current_item = sp_document(self.db.db)
+        if self.key:
+            self.db.schema.set_key(self.current_item, self.key)
+        sp_setstring(self.current_item, 'order', <char *>self.order, 0)
+        if self.prefix:
+            sp_setstring(self.current_item, 'prefix', <char *>self.prefix,
+                         (sizeof(char) * len(self.prefix)))
+        return self
+
+    def __next__(self):
+        self.current_item = sp_get(self.cursor, self.current_item)
+        if not self.current_item:
+            sp_destroy(self.cursor)
+            self.cursor = <void *>0
+            raise StopIteration
+
+        cdef:
+            Schema schema = self.db.schema
+            tuple key, value
+
+        if self.keys and self.values:
+            key = schema.get_key(self.current_item)
+            value = schema.get_value(self.current_item)
+            return (key if schema.multi_key else key[0],
+                    value if schema.multi_value else value[0])
+        elif self.keys:
+            key = schema.get_key(self.current_item)
+            return key if schema.multi_key else key[0]
+        elif self.values:
+            value = schema.get_value(self.current_item)
+            return value if schema.multi_value else value[0]
