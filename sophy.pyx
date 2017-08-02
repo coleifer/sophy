@@ -80,6 +80,7 @@ cdef inline check_open(Environment env):
 class SophiaError(Exception): pass
 
 cdef class Schema(object)
+cdef class Transaction(object)
 
 
 cdef class Environment(object):
@@ -87,6 +88,7 @@ cdef class Environment(object):
         bint is_open
         list databases
         readonly bytes path
+        Transaction _transaction
         void *env
 
     def __cinit__(self):
@@ -96,6 +98,7 @@ cdef class Environment(object):
         self.is_open = False
         self.databases = []
         self.path = encode(path)
+        self._transaction = None
 
     def add_database(self, name, Schema schema):
         cdef:
@@ -154,6 +157,75 @@ cdef class Environment(object):
 
     cdef set_string(self, const char *key, const char *value):
         sp_setstring(self.env, key, value, 0)
+
+    cpdef Transaction transaction(self):
+        return Transaction(self)
+
+
+cdef class Transaction(object):
+    cdef:
+        Environment env
+        void *txn
+
+    def __cinit__(self, Environment env):
+        self.env = env
+        self.txn = <void *>0
+
+    def __dealloc__(self):
+        if self.env.is_open and self.txn:
+            sp_destroy(self.txn)
+
+    cdef _reset(self, bint begin):
+        self.txn = <void *>0
+        self.env._transaction = None
+        if begin:
+            self.begin()
+
+    cpdef begin(self):
+        check_open(self.env)
+        if self.txn:
+            raise SophiaError('This transaction has already been started.')
+        if self.env._transaction:
+            raise SophiaError('Another transaction is currently open.')
+        self.txn = sp_begin(self.env.env)
+        self.env._transaction = self
+
+    cpdef commit(self, begin=True):
+        check_open(self.env)
+        if not self.txn:
+            raise SophiaError('Transaction is not currently open. Cannot '
+                              'commit.')
+
+        cdef int rc = sp_commit(self.txn)
+        if rc == 1:
+            raise SophiaError('transaction was rolled back by another '
+                              'concurrent transaction.')
+        elif rc == 2:
+            raise SophiaError('transaction is not finished, waiting for a '
+                              'concurrent transaction to finish.')
+        self._reset(begin)
+
+    cpdef rollback(self, begin=True):
+        check_open(self.env)
+        if not self.txn:
+            raise SophiaError('Transaction is not currently open. Cannot '
+                              'rollback.')
+        sp_destroy(self.txn)
+        self._reset(begin)
+
+    def __enter__(self):
+        self.begin()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback(False)
+        else:
+            try:
+                self.commit(False)
+            except:
+                self.rollback(False)
+                raise
 
 
 SCHEMA_STRING = b'string'
@@ -319,13 +391,21 @@ cdef class Database(object):
     def __dealloc__(self):
         self.db = <void *>0
 
+    cdef void *_get_target(self):
+        cdef void *target
+        if self.env._transaction:
+            target = self.env._transaction.txn
+        else:
+            target = self.db
+        return target
+
     cdef _set(self, tuple key, tuple value):
         cdef:
             void *doc = sp_document(self.db)
 
         self.schema.set_key(doc, key)
         self.schema.set_value(doc, value)
-        sp_set(self.db, doc)
+        sp_set(self._get_target(), doc)
 
     cdef tuple _get(self, tuple key):
         cdef:
@@ -333,7 +413,7 @@ cdef class Database(object):
             void *result
 
         self.schema.set_key(doc, key)
-        result = sp_get(self.db, doc)
+        result = sp_get(self._get_target(), doc)
         if not result:
             return
 
@@ -347,7 +427,7 @@ cdef class Database(object):
             void *result
 
         self.schema.set_key(doc, key)
-        result = sp_get(self.db, doc)
+        result = sp_get(self._get_target(), doc)
         if result:
             sp_destroy(result)
             return True
@@ -359,7 +439,7 @@ cdef class Database(object):
             void *doc = sp_document(self.db)
 
         self.schema.set_key(doc, key)
-        return sp_delete(self.db, doc) == 0
+        return sp_delete(self._get_target(), doc) == 0
 
     def __getitem__(self, key):
         check_open(self.env)
