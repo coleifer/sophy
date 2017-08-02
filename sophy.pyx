@@ -105,7 +105,7 @@ cdef class Configuration(object):
             return _getstring(self.env.env, key)
         else:
             bkey = encode(key)
-            return sp_getint(self.env.env, <const char *>key)
+            return sp_getint(self.env.env, <const char *>bkey)
 
     cdef clear_option(self, key):
         try:
@@ -162,7 +162,8 @@ def __operation__(name):
 def __dbconfig__(name, is_string=False, is_readonly=False):
     def _getter(self):
         uname = self.name.decode('utf-8')
-        return self.env.config.get_option('db.%s.%s' % (uname, name))
+        return self.env.config.get_option('db.%s.%s' % (uname, name),
+                                          is_string)
     if is_readonly:
         return property(_getter)
     def _setter(self, value):
@@ -173,6 +174,8 @@ def __dbconfig__(name, is_string=False, is_readonly=False):
 def __dbconfig_ro__(name, is_string=False):
     return __dbconfig__(name, is_string, True)
 
+def __dbconfig_s__(name, is_readonly=False):
+    return __dbconfig__(name, True, is_readonly)
 
 
 cdef class Sophia(object):
@@ -525,7 +528,7 @@ cdef class Schema(object):
 cdef class Database(object):
     cdef:
         readonly bytes name
-        Sophia env
+        readonly Sophia env
         Schema schema
         void *db
 
@@ -686,6 +689,60 @@ cdef class Database(object):
         check_open(self.env)
         return Cursor(db=self, order=order, key=key, prefix=prefix, keys=keys,
                       values=values)
+
+    database_name = __dbconfig_ro__('name', is_string=True)
+    database_id = __dbconfig_ro__('id')
+    database_path = __dbconfig_ro__('path', is_string=True)
+
+    mmap = __dbconfig__('mmap')
+    direct_io = __dbconfig__('direct_io')
+    sync = __dbconfig__('sync')
+    expire = __dbconfig__('expire')
+    compression = __dbconfig_s__('compression')  # lz4, zstd, none
+
+    limit_key = __dbconfig_ro__('limit.key')
+    limit_field = __dbconfig__('limit.field')
+
+    index_memory_used = __dbconfig_ro__('index.memory_used')
+    index_size = __dbconfig_ro__('index.size')
+    index_size_uncompressed = __dbconfig_ro__('index.size_uncompressed')
+    index_count = __dbconfig_ro__('index.count')
+    index_count_dup = __dbconfig_ro__('index.count_dup')
+    index_read_disk = __dbconfig_ro__('index.read_disk')
+    index_read_cache = __dbconfig_ro__('index.read_cache')
+    index_node_count = __dbconfig_ro__('index.node_count')
+    index_page_count = __dbconfig_ro__('index.page_count')
+
+    compaction_cache = __dbconfig__('compaction.cache')
+    compaction_node_size = __dbconfig__('compaction.node_size')
+    compaction_page_size = __dbconfig__('compaction.page_size')
+    compaction_page_checksum = __dbconfig__('compaction.page_checksum')
+    compaction_expire_period = __dbconfig__('compaction.expire_period')
+    compaction_gc_wm = __dbconfig__('compaction.gc_wm')
+    compaction_gc_period = __dbconfig__('compaction.gc_period')
+
+    stat_documents_used = __dbconfig_ro__('stat.documents_used')
+    stat_documents = __dbconfig_ro__('stat.documents')
+    stat_field = __dbconfig_ro__('stat.field', is_string=True)
+    stat_set = __dbconfig_ro__('stat.set')
+    stat_set_latency = __dbconfig_ro__('stat.set_latency', is_string=True)
+    stat_delete = __dbconfig_ro__('stat.delete')
+    stat_delete_latency = __dbconfig_ro__('stat.delete_latency', True)
+    stat_get = __dbconfig_ro__('stat.get')
+    stat_get_latency = __dbconfig_ro__('stat.get_latency', is_string=True)
+    stat_get_read_disk = __dbconfig_ro__('stat.get_read_disk', is_string=True)
+    stat_get_read_cache = __dbconfig_ro__('stat.get_read_cache', True)
+    stat_pread = __dbconfig_ro__('stat.pread')
+    stat_pread_latency = __dbconfig_ro__('stat.pread_latency', is_string=True)
+    stat_cursor = __dbconfig_ro__('stat.cursor')
+    stat_cursor_latency = __dbconfig_ro__('stat.cursor_latency', True)
+    stat_cursor_read_disk = __dbconfig_ro__('stat.cursor_read_disk', True)
+    stat_cursor_read_cache = __dbconfig_ro__('stat.cursor_read_cache', True)
+    stat_cursor_ops = __dbconfig_ro__('stat.cursor_ops', True)
+
+    scheduler_gc = __dbconfig_ro__('scheduler.gc')
+    scheduler_expire = __dbconfig_ro__('scheduler.expire')
+    scheduler_backup = __dbconfig_ro__('scheduler.backup')
 
 
 cdef class Cursor(object):
