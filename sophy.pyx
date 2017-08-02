@@ -36,7 +36,7 @@ cdef extern from "src/sophia.h":
 
 class SophiaError(Exception): pass
 
-cdef class Environment(object)
+cdef class Sophia(object)
 cdef class Schema(object)
 cdef class Transaction(object)
 
@@ -80,7 +80,7 @@ cdef inline _check(void *env, int rc):
         else:
             raise Exception('unknown error occurred.')
 
-cdef inline check_open(Environment env):
+cdef inline check_open(Sophia env):
     if not env.is_open:
         raise SophiaError('Sophia environment is closed.')
 
@@ -88,9 +88,9 @@ cdef inline check_open(Environment env):
 cdef class Configuration(object):
     cdef:
         dict settings
-        Environment env
+        Sophia env
 
-    def __cinit__(self, Environment env):
+    def __cinit__(self, Sophia env):
         self.env = env
         self.settings = {}
 
@@ -175,7 +175,7 @@ def __dbconfig_ro__(name, is_string=False):
 
 
 
-cdef class Environment(object):
+cdef class Sophia(object):
     cdef:
         bint is_open
         readonly Configuration config
@@ -271,7 +271,8 @@ cdef class Environment(object):
     backup_last_complete = __config_ro__('backup.last_complete')
 
     scheduler_threads = __config__('scheduler.threads')
-    scheduler_trace = __config_ro__('scheduler.id.trace', is_string=True)
+    def scheduler_trace(self, thread_id):
+        return self.config.get_option('scheduler.%s.trace' % thread_id)
 
     transaction_online_rw = __config_ro__('transaction.online_rw')
     transaction_online_ro = __config_ro__('transaction.online_ro')
@@ -303,10 +304,10 @@ cdef class Environment(object):
 
 cdef class Transaction(object):
     cdef:
-        Environment env
+        Sophia env
         void *txn
 
-    def __cinit__(self, Environment env):
+    def __cinit__(self, Sophia env):
         self.env = env
         self.txn = <void *>0
 
@@ -524,14 +525,14 @@ cdef class Schema(object):
 cdef class Database(object):
     cdef:
         readonly bytes name
-        Environment env
+        Sophia env
         Schema schema
         void *db
 
     def __cinit__(self):
         self.db = <void *>0
 
-    def __init__(self, Environment env, name, schema):
+    def __init__(self, Sophia env, name, schema):
         self.env = env
         self.name = encode(name)
         self.schema = schema
