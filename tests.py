@@ -84,6 +84,38 @@ class TestBasicOperations(BaseTestCase):
         self.assertEqual(list(db), [('k0', 'v0-e'), ('k1', 'v1'), ('k2', 'v2'),
                                     ('k3', 'v3-e'), ('k99', 'v99-e')])
 
+    def test_get_range(self):
+        db = self.env['main']
+        for i in range(4):
+            db['k%s' % i] = 'v%s' % i
+
+        self.assertEqual(list(db['k1':'k2']), [('k1', 'v1'), ('k2', 'v2')])
+        self.assertEqual(list(db['k01':'k21']), [('k1', 'v1'), ('k2', 'v2')])
+        self.assertEqual(list(db['k2':]), [('k2', 'v2'), ('k3', 'v3')])
+        self.assertEqual(list(db[:'k1']), [('k0', 'v0'), ('k1', 'v1')])
+        self.assertEqual(list(db['k2':'kx']), [('k2', 'v2'), ('k3', 'v3')])
+        self.assertEqual(list(db['a1':'k1']), [('k0', 'v0'), ('k1', 'v1')])
+        self.assertEqual(list(db[:'a1']), [])
+        self.assertEqual(list(db['z1':]), [])
+        self.assertEqual(list(db[:]), [('k0', 'v0'), ('k1', 'v1'),
+                                       ('k2', 'v2'), ('k3', 'v3')])
+
+        self.assertEqual(list(db['k2':'k1']), [('k2', 'v2'), ('k1', 'v1')])
+        self.assertEqual(list(db['k21':'k01']), [('k2', 'v2'), ('k1', 'v1')])
+        self.assertEqual(list(db['k2'::True]), [('k3', 'v3'), ('k2', 'v2')])
+        self.assertEqual(list(db[:'k1':True]), [('k1', 'v1'), ('k0', 'v0')])
+        self.assertEqual(list(db['kx':'k2']), [('k3', 'v3'), ('k2', 'v2')])
+        self.assertEqual(list(db['k1':'a1']), [('k1', 'v1'), ('k0', 'v0')])
+        self.assertEqual(list(db[:'a1':True]), [])
+        self.assertEqual(list(db['z1'::True]), [])
+        self.assertEqual(list(db[::True]), [('k3', 'v3'), ('k2', 'v2'),
+                                            ('k1', 'v1'), ('k0', 'v0')])
+
+        self.assertEqual(list(db['k1':'k2':True]),
+                         [('k2', 'v2'), ('k1', 'v1')])
+        self.assertEqual(list(db['k2':'k1':True]),
+                         [('k2', 'v2'), ('k1', 'v1')])
+
 
 """
 class BaseSophiaTestMethods(object):
