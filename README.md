@@ -1,37 +1,58 @@
-<a href="http://sphia.org"><img src="http://media.charlesleifer.com/blog/photos/sophia-logo.png" width="215px" height="95px" /></a>
+<a href="http://sophia.systems/"><img src="http://media.charlesleifer.com/blog/photos/sophia-logo.png" width="215px" height="95px" /></a>
 
-`sophy`, fast Python bindings for [Sophia Database](http://sphia.org), v2.1.
+`sophy`, fast Python bindings for [Sophia embedded database](http://sophia.systems), v2.2.
 
-Features:
+About sophy:
 
-* Append-only MVCC database
-* ACID transactions
-* Consistent cursors
-* Compression
-* Multi-part keys
-* Multiple databases per environment
+* Written in Cython for speed and low-overhead
+* Clean, memorable APIs
+* Extensive support for Sophia's features
+* Python 2 **and** Python 3 support
+* No 3rd-party dependencies besides Cython
+
+About Sophia:
+
 * Ordered key/value store
-* Fast Range searches
-* Read-only, point-in-time Views
+* Keys and values can be composed of multiple fieldsdata-types
+* ACID transactions
+* MVCC, optimistic, non-blocking concurrency with multiple readers and writers.
+* Multiple databases per environment
+* Multiple- and single-statement transactions across databases
 * Prefix searches
-* Python 2.x only at the moment, but 3.x is coming.
+* Automatic garbage collection and key expiration
+* Hot backup
+* Compression
+* Multi-threaded compaction
+* `mmap` support, direct I/O support
+* APIs for variety of statistics on storage engine internals
+* BSD licensed
+
+Some ideas of where Sophia might be a good fit:
+
+* Running on application servers, low-latency / high-throughput
+* Time-series
+* Analytics / Events / Logging
+* Full-text search
+* Secondary-index for external data-store
 
 Limitations:
 
 * Not tested on Windoze.
 
-The source for `sophy` is [hosted on GitHub](https://github.com/coleifer/sophy)
-
 If you encounter any bugs in the library, please [open an issue](https://github.com/coleifer/sophy/issues/new), including a description of the bug and any related traceback.
 
 ## Installation
 
-The [sophia](http://sophia.systems) sources are bundled with the `sophy` source code, so the only thing you need to install is [Cython](http://cython.org). You can install from [GitHub](https://github.com/coleifer/sophy) or from [PyPI](https://pypi.python.org/pypi/sophy/).
+The [sophia](http://sophia.systems) sources are bundled with the `sophy` source
+code, so the only thing you need to install is [Cython](http://cython.org). You
+can install from [GitHub](https://github.com/coleifer/sophy) or from
+[PyPI](https://pypi.python.org/pypi/sophy/).
 
 Pip instructions:
 
 ```console
-$ pip install Cython sophy
+$ pip install Cython
+$ pip install sophy
 ```
 
 Git instructions:
@@ -46,28 +67,52 @@ $ python setup.py install
 
 ## Overview
 
-Sophy is very simple to use. It acts like a Python `dict` object, but in addition to normal dictionary operations, you can read slices of data that are returned efficiently using cursors. Similarly, bulk writes using `update()` use an efficient, atomic batch operation. Reading and writing data to Sophy is a lot like working with a regular Python dictionary.
+Sophy is very simple to use. It acts like a Python `dict` object, but in
+addition to normal dictionary operations, you can read slices of data that are
+returned efficiently using cursors. Similarly, bulk writes using `update()` use
+an efficient, atomic batch operation.
 
-Despite the simple APIs, Sophia has quite a few advanced features. Sophia supports multiple key/value stores per environment. Key/value stores support multi-part keys, mmap, a cache mode, in-memory mode, LRU mode (bounded size), AMQ filters to reduce disk seeks, compression, read-only point-in-time views, and more. There is too much to cover everything in this document, so be sure to check out the official [Sophia storage engine documentation](http://sophia.systems/v2.1/index.html).
+Despite the simple APIs, Sophia has quite a few advanced features. There is too
+much to cover everything in this document, so be sure to check out the official
+[Sophia storage engine documentation](http://sophia.systems/v2.2/).
 
 The next section will show how to perform common actions with `sophy`.
 
 ## Using Sophy
 
-To begin, I've opened a Python terminal and instantiated a Sophia environment with one database (an environment can have multiple databases, though). When I called `create_database()` I specified my key/value store's name and index type, `"string"`.
+To begin, I've opened a Python terminal and instantiated a Sophia environment
+with one database (an environment can have multiple databases, though). When I
+called `create_database()` I specified my key/value store's name and the schema
+for the keys and values. Keys and values can be composed of one or more fields,
+where each field can be a string, 64-, 32-, 16- or 8-bit integer.
 
 ```pycon
 >>> from sophy import Sophia
 >>> env = Sophia('/path/to/data-dir')
->>> db = env.create_database('mydb', 'string')  # Create a new KV store.
+>>> key_schema = [
+...     U64Index('timestamp'),
+...     StringIndex('event')]
+>>> value_schema = [
+...     StringIndex('source'),
+...     StringIndex('data')]
+>>> events = env.add_database('events, Schema(key_schema, value_schema))
+>>> env.open()
+True
 ```
 
-The `db` object can now be used to store and retrieve data. Our keys will be strings, as will the values. Values are always treated as strings in `sophy`, but depending on the index type the key may be either: a 32-bit unsigned int, a 64-bit unsigned int, a string, or any combination of the above as a multi-part key.
+The `db` object can now be used to store and retrieve data. Our keys will be
+2-tuples consisting of an integer timestamp and an event identifier. The values
+will also be 2-tuples consisting of a string identifying the event source and
+arbitrary data associated with the event.
 
-We can set values individually or in groups:
+In the examples below we will look at how to store and retrieve data:
 
 ```pycon
->>> db['k1'] = 'v1'
+>>> def timestamp():
+...     # Store timestamp as integer in milliseconds.
+...     return int(time.time() * 1000)
+...
+>>> db[time.time()
 >>> db.update(k2='v2', k3='v3', k4='v4')  # Efficient, atomic.
 ```
 
