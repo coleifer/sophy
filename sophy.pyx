@@ -2,6 +2,9 @@ from cpython.bytes cimport PyBytes_AsStringAndSize
 from cpython.bytes cimport PyBytes_Check
 from cpython.mem cimport PyMem_Free
 from cpython.mem cimport PyMem_Malloc
+#from cpython.object cimport PyObject
+#from cpython.ref cimport Py_DECREF
+#from cpython.ref cimport Py_INCREF
 from cpython.unicode cimport PyUnicode_AsUTF8String
 from cpython.version cimport PY_MAJOR_VERSION
 from libc.stdlib cimport free
@@ -101,10 +104,10 @@ cdef class Configuration(object):
 
     def get_option(self, key, is_string=True):
         check_open(self.env)
+        cdef bytes bkey = encode(key)
         if is_string:
-            return _getstring(self.env.env, key)
+            return _getstring(self.env.env, <const char *>bkey)
         else:
-            bkey = encode(key)
             return sp_getint(self.env.env, <const char *>bkey)
 
     cdef clear_option(self, key):
@@ -142,7 +145,8 @@ cdef class Configuration(object):
             self._set(key, value)
 
 
-def __config__(name, is_string=False, is_readonly=False):
+def __config__(config_name, is_string=False, is_readonly=False):
+    cdef bytes name = encode(config_name)
     def _getter(self):
         return self.config.get_option(name, is_string)
     if is_readonly:
@@ -156,19 +160,18 @@ def __config_ro__(name, is_string=False):
 
 def __operation__(name):
     def _method(self):
-        self.config.set_option(name, 0)
+        self.config.set_option(encode(name), 0)
     return _method
 
-def __dbconfig__(name, is_string=False, is_readonly=False):
+def __dbconfig__(config_name, is_string=False, is_readonly=False):
+    cdef bytes name = encode(config_name)
     def _getter(self):
-        uname = self.name.decode('utf-8')
-        return self.env.config.get_option('db.%s.%s' % (uname, name),
+        return self.env.config.get_option(b'.'.join((b'db', self.name, name)),
                                           is_string)
     if is_readonly:
         return property(_getter)
     def _setter(self, value):
-        uname = self.name.decode('utf-8')
-        self.env.config.set_option('db.%s.%s' % (uname, name), value)
+        self.env.config.set_option(b'.'.join((b'db', self.name, name)), value)
     return property(_getter, _setter)
 
 def __dbconfig_ro__(name, is_string=False):
@@ -400,11 +403,11 @@ cdef class StringIndex(BaseIndex):
 
     cdef set_key(self, void *obj, value):
         cdef:
+            bytes bvalue = encode(value)
             char *buf
             Py_ssize_t buflen
 
-        value = encode(value)
-        PyBytes_AsStringAndSize(value, &buf, &buflen)
+        PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
 
     cdef get_key(self, void *obj):
@@ -488,7 +491,7 @@ cdef class Schema(object):
 
     def add_value(self, BaseIndex index):
         self.value.append(index)
-        self.multi_value = len(self.key) != 1
+        self.multi_value = len(self.value) != 1
 
     cdef set_key(self, void *obj, tuple parts):
         cdef:
