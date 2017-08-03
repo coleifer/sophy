@@ -389,6 +389,7 @@ cdef class BaseIndex(object):
     cdef:
         bytes name
 
+    by_reference = False
     data_type = b''
 
     def __init__(self, name):
@@ -399,6 +400,7 @@ cdef class BaseIndex(object):
 
 
 cdef class StringIndex(BaseIndex):
+    by_reference = True
     data_type = SCHEMA_STRING
 
     cdef set_key(self, void *obj, value):
@@ -409,6 +411,7 @@ cdef class StringIndex(BaseIndex):
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        return bvalue
 
     cdef get_key(self, void *obj):
         return _getstring(obj, <const char *>self.name)
@@ -466,9 +469,29 @@ cdef class U8RevIndex(U8Index):
     data_type = SCHEMA_U8_REV
 
 
+cdef class Document(object):
+    cdef:
+        list refs
+        void *handle
+
+    def __cinit__(self):
+        self.handle = <void *>0
+        self.refs = []
+
+    cdef release_refs(self):
+        self.refs = []
+
+
+cdef Document create_document(void *handle):
+    cdef Document doc = Document.__new__(Document)
+    doc.handle = handle
+    return doc
+
+
 cdef class Schema(object):
     cdef:
         bint multi_key, multi_value
+        int key_n_ref, value_n_ref
         list key
         list value
 
@@ -476,6 +499,7 @@ cdef class Schema(object):
         cdef:
             BaseIndex index
 
+        self.key_n_ref = self.value_n_ref = 0
         self.key = []
         self.value = []
         if key_parts is not None:
@@ -488,43 +512,51 @@ cdef class Schema(object):
     def add_key(self, BaseIndex index):
         self.key.append(index)
         self.multi_key = len(self.key) != 1
+        if index.by_reference:
+            self.key_n_ref += 1
 
     def add_value(self, BaseIndex index):
         self.value.append(index)
         self.multi_value = len(self.value) != 1
+        if index.by_reference:
+            self.value_n_ref += 1
 
-    cdef set_key(self, void *obj, tuple parts):
+    cdef set_key(self, Document doc, tuple parts):
         cdef:
             BaseIndex index
             int i
 
         for i, index in enumerate(self.key):
-            index.set_key(obj, parts[i])
+            ref = index.set_key(doc.handle, parts[i])
+            if index.by_reference:
+                doc.refs.append(ref)
 
-    cdef get_key(self, void *obj):
+    cdef tuple get_key(self, Document doc):
         cdef:
             BaseIndex index
             list accum = []
 
         for index in self.key:
-            accum.append(index.get_key(obj))
+            accum.append(index.get_key(doc.handle))
         return tuple(accum)
 
-    cdef set_value(self, void *obj, tuple parts):
+    cdef set_value(self, Document doc, tuple parts):
         cdef:
             BaseIndex index
             int i
 
         for i, index in enumerate(self.value):
-            index.set_key(obj, parts[i])
+            ref = index.set_key(doc.handle, parts[i])
+            if index.by_reference:
+                doc.refs.append(ref)
 
-    cdef get_value(self, void *obj):
+    cdef tuple get_value(self, Document doc):
         cdef:
             BaseIndex index
             list accum = []
 
         for index in self.value:
-            accum.append(index.get_key(obj))
+            accum.append(index.get_key(doc.handle))
         return tuple(accum)
 
 
@@ -556,42 +588,54 @@ cdef class Database(object):
 
     cdef _set(self, tuple key, tuple value):
         cdef:
-            void *doc = sp_document(self.db)
+            void *handle = sp_document(self.db)
+            Document doc = create_document(handle)
 
         self.schema.set_key(doc, key)
         self.schema.set_value(doc, value)
-        sp_set(self._get_target(), doc)
+        sp_set(self._get_target(), doc.handle)
+        doc.release_refs()
 
     cdef tuple _get(self, tuple key):
         cdef:
-            void *doc = sp_document(self.db)
+            void *handle = sp_document(self.db)
             void *result
+            Document doc = create_document(handle)
 
         self.schema.set_key(doc, key)
-        result = sp_get(self._get_target(), doc)
+        result = sp_get(self._get_target(), doc.handle)
+        doc.release_refs()
         if not result:
             return
 
-        data = self.schema.get_value(result)
+        doc.handle = result
+        data = self.schema.get_value(doc)
         sp_destroy(result)
         return data
 
     cdef bint _exists(self, tuple key):
         cdef:
-            void *doc = sp_document(self.db)
+            void *handle = sp_document(self.db)
             void *result
+            Document doc = create_document(handle)
 
         self.schema.set_key(doc, key)
-        result = sp_get(self._get_target(), doc)
+        result = sp_get(self._get_target(), doc.handle)
+        doc.release_refs()
         if result:
             sp_destroy(result)
             return True
         return False
 
     cdef bint _delete(self, tuple key):
-        cdef void *doc = sp_document(self.db)
+        cdef:
+            bint ret
+            void *handle = sp_document(self.db)
+            Document doc = create_document(handle)
         self.schema.set_key(doc, key)
-        return sp_delete(self._get_target(), doc) == 0
+        ret = sp_delete(self._get_target(), doc.handle) == 0
+        doc.release_refs()
+        return ret
 
     def __getitem__(self, key):
         check_open(self.env)
@@ -751,12 +795,12 @@ cdef class Database(object):
 cdef class Cursor(object):
     cdef:
         Database db
+        Document current_item
         readonly bint keys
         readonly bint values
         readonly bytes order
         readonly bytes prefix
         readonly key
-        void *current_item
         void *cursor
 
     def __cinit__(self, Database db, order='>=', key=None, prefix=None,
@@ -768,15 +812,13 @@ cdef class Cursor(object):
         self.prefix = encode(prefix) if prefix else None
         self.keys = keys
         self.values = values
-        self.current_item = <void *>0
+        self.current_item = None
         self.cursor = <void *>0
 
     def __dealloc__(self):
         if not self.db.env.is_open:
             return
 
-        if self.current_item:
-            sp_destroy(self.current_item)
         if self.cursor:
             sp_destroy(self.cursor)
 
@@ -787,21 +829,25 @@ cdef class Cursor(object):
             self.cursor = <void *>0
 
         self.cursor = sp_cursor(self.db.env.env)
-        self.current_item = sp_document(self.db.db)
+        cdef void *handle = sp_document(self.db.db)
+        self.current_item = create_document(handle)
         if self.key:
             self.db.schema.set_key(self.current_item, self.key)
-        sp_setstring(self.current_item, 'order', <char *>self.order, 0)
+        sp_setstring(self.current_item.handle, 'order', <char *>self.order, 0)
         if self.prefix:
-            sp_setstring(self.current_item, 'prefix', <char *>self.prefix,
+            sp_setstring(self.current_item.handle, 'prefix',
+                         <char *>self.prefix,
                          (sizeof(char) * len(self.prefix)))
         return self
 
     def __next__(self):
-        self.current_item = sp_get(self.cursor, self.current_item)
-        if not self.current_item:
+        cdef void *handle = sp_get(self.cursor, self.current_item.handle)
+        if not handle:
             sp_destroy(self.cursor)
             self.cursor = <void *>0
             raise StopIteration
+        else:
+            self.current_item.handle = handle
 
         cdef:
             Schema schema = self.db.schema
