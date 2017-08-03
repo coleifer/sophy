@@ -3,7 +3,7 @@ import shutil
 import sys
 import unittest
 
-from sophy import Sophia
+from sophy import *
 
 
 DB_NAME = 'db-test'
@@ -11,33 +11,81 @@ TEST_DIR = 'sophia-test'
 
 
 class BaseTestCase(unittest.TestCase):
-    _index_type = 'string'
+    databases = (
+        ('main', Schema([StringIndex('key')], [StringIndex('value')])),
+    )
 
     def setUp(self):
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
-        self.sophia = self.create_env()
-        self.db = self.get_db()
+        self.env = self.create_env()
+        for name, schema in self.databases:
+            self.env.add_database(name, schema)
+        assert self.env.open()
 
     def tearDown(self):
-        self.sophia.close()
+        assert self.env.close()
         if os.path.exists(TEST_DIR):
             shutil.rmtree(TEST_DIR)
 
     def create_env(self):
-        return Sophia(TEST_DIR, [(DB_NAME, self._index_type)])
-
-    def get_db(self):
-        return self.sophia[DB_NAME]
+        return Sophia(TEST_DIR)
 
 
 class TestConfiguration(BaseTestCase):
     def test_version(self):
-        v = self.sophia.version
-        self.assertEqual(v, '2.1.1')
+        self.assertEqual(self.env.version, '2.2')
+
+    def test_status(self):
+        self.assertEqual(self.env.status, 'online')
 
 
+class TestBasicOperations(BaseTestCase):
+    def test_crud(self):
+        db = self.env['main']
+        vals = (('huey', 'cat'), ('mickey', 'dog'), ('zaizee', 'cat'))
+        for key, value in vals:
+            db[key] = value
+        for key, value in vals:
+            self.assertEqual(db[key], value)
+            self.assertTrue(key in db)
+
+        del db['mickey']
+        self.assertFalse('mickey' in db)
+        self.assertRaises(KeyError, lambda: db['mickey'])
+
+        db['huey'] = 'kitten'
+        self.assertEqual(db['huey'], 'kitten')
+
+    def test_iterables(self):
+        db = self.env['main']
+        for i in range(4):
+            db['k%s' % i] = 'v%s' % i
+
+        items = list(db)
+        self.assertEqual(items, [('k0', 'v0'), ('k1', 'v1'), ('k2', 'v2'),
+                                 ('k3', 'v3')])
+        self.assertEqual(list(db.items()), items)
+
+        self.assertEqual(list(db.keys()), ['k0', 'k1', 'k2', 'k3'])
+        self.assertEqual(list(db.values()), ['v0', 'v1', 'v2', 'v3'])
+        self.assertEqual(len(db), 4)
+        self.assertEqual(db.index_count, 4)
+
+    def test_multi_get_set(self):
+        db = self.env['main']
+        for i in range(4):
+            db['k%s' % i] = 'v%s' % i
+
+        self.assertEqual(db.multi_get('k0', 'k3', 'k99'), ['v0', 'v3', None])
+
+        db.update(k0='v0-e', k3='v3-e', k99='v99-e')
+        self.assertEqual(list(db), [('k0', 'v0-e'), ('k1', 'v1'), ('k2', 'v2'),
+                                    ('k3', 'v3-e'), ('k99', 'v99-e')])
+
+
+"""
 class BaseSophiaTestMethods(object):
     def setUp(self):
         super(BaseSophiaTestMethods, self).setUp()
@@ -464,7 +512,7 @@ class TestMultiIndex(BaseSophiaTestMethods, BaseTestCase):
         self.r7 = ('ee', 'zz', 'aa')
         self.r3_1 = ('cc', 'bc', 'bb')
         self.r5_1 = ('de', 'ad', 'da')
-
+"""
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)
