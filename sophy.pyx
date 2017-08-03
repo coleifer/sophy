@@ -185,6 +185,7 @@ cdef class Sophia(object):
     cdef:
         bint is_open
         readonly Configuration config
+        dict database_lookup
         list databases
         readonly bytes path
         Transaction _transaction
@@ -196,6 +197,7 @@ cdef class Sophia(object):
     def __init__(self, path):
         self.config = Configuration(self)
         self.is_open = False
+        self.database_lookup = {}
         self.databases = []
         self.path = encode(path)
         self._transaction = None
@@ -204,7 +206,15 @@ cdef class Sophia(object):
         cdef:
             db = Database(self, name, schema)
         self.databases.append(db)
+        self.database_lookup[name] = db
         return db
+
+    def remove_database(self, name):
+        db = self.database_lookup.pop(name)
+        self.databases.remove(db)
+
+    def __getitem__(self, name):
+        return self.database_lookup[name]
 
     cdef configure_database(self, Database db):
         cdef:
@@ -681,12 +691,12 @@ cdef class Database(object):
                 self._update(_data, kwargs)
 
     def multi_get(self, *keys):
-        cdef dict accum = {}
+        cdef list accum = []
         for key in keys:
             try:
-                accum[key] = self[key]
+                accum.append(self[key])
             except KeyError:
-                accum[key] = None
+                accum.append(None)
         return accum
 
     def get_range(self, start=None, stop=None, reverse=False):
