@@ -334,11 +334,12 @@ cdef class Transaction(object):
         if begin:
             self.begin()
 
-    cpdef begin(self):
+    cpdef Transaction begin(self):
         check_open(self.env)
         if self.txn:
             raise SophiaError('This transaction has already been started.')
         self.txn = sp_begin(self.env.env)
+        return self
 
     cpdef commit(self, begin=True):
         check_open(self.env)

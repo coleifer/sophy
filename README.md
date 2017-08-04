@@ -256,7 +256,68 @@ for timestamp, event_data in db.cursor(key='2017-07-01T00:00:00',
 
 ### Transactions
 
-TODO
+Sophia supports ACID transactions. Even better, a single transaction can cover
+operations to multiple databases in a given environment.
+
+Example usage:
+
+```python
+
+account_balance = env.add_database('balance', ...)
+transaction_log = env.add_database('transaction_log', ...)
+
+# ...
+
+def transfer_funds(from_acct, to_acct, amount):
+    with env.transaction() as txn:
+        # To write to a database within a transaction, obtain a reference to
+        # a wrapper object for the db:
+        txn_acct_bal = txn[account_balance]
+        txn_log = txn[transaction_log]
+
+        # Transfer the asset by updating the respective balances. Note that we
+        # are operating on the wrapper database, not the db instance.
+        from_bal = txn_acct_bal[from_acct]
+        txn_acct_bal[to_account] = from_bal + amount
+        txn_acct_bal[from_account] = from_bal - amount
+
+        # Log the transaction in the transaction_log database. Again, we use
+        # the wrapper for the database:
+        txn_log[from_account, to_account, get_timestamp()] = amount
+```
+
+Multiple transactions are allowed to be open at the same time, but if there are
+conflicting changes, an exception will be thrown when attempting to commit the
+offending transaction:
+
+```python
+
+# Create a basic k/v store. Schema.key_value() is a convenience/factory-method.
+kv = env.add_database('main', Schema.key_value())
+
+# ...
+
+# Instead of using the context manager, we'll call begin() explicitly so we
+# can show the interaction of 2 open transactions.
+txn = env.transaction().begin()
+
+t_kv = txn[kv]
+t_kv['k1'] = 'v1'
+
+txn2 = env.transaction().begin()
+t2_kv = txn2[kv]
+
+t2_kv['k1'] = 'v1-x'
+
+txn2.commit()  # ERROR !!
+# SophiaError('txn is not finished, waiting for concurrent txn to finish.')
+
+txn.commit()  # OK
+
+# Try again?
+txn2.commit()  # ERROR !!
+# SophiaError('transasction rolled back by another concurrent transaction.')
+```
 
 ## Multi-field keys and values
 
