@@ -2,6 +2,8 @@
 
 `sophy`, fast Python bindings for [Sophia embedded database](http://sophia.systems), v2.2.
 
+<a href="https://travis-ci.org/coleifer/sophy"><img src="https://api.travis-ci.org/coleifer/sophy.svg?branch=master" /></a>
+
 About sophy:
 
 * Written in Cython for speed and low-overhead
@@ -55,6 +57,12 @@ $ pip install Cython
 $ pip install sophy
 ```
 
+Or to install the latest code from master:
+
+```console
+$ pip install -e git+https://github.com/coleifer/sophy#egg=sophy
+```
+
 Git instructions:
 
 ```console
@@ -64,6 +72,16 @@ $ cd sophy
 $ python setup.py build
 $ python setup.py install
 ```
+
+To run the tests:
+
+```console
+$ python tests.py
+```
+
+![](http://media.charlesleifer.com/blog/photos/sophy-logo.png)
+
+---------------------------------------------
 
 ## Overview
 
