@@ -138,10 +138,11 @@ class TestBasicOperations(BaseTestCase):
         db['k2'] = 'v2'
 
         with self.env.transaction() as txn:
-            self.assertEqual(db['k1'], 'v1')
-            db['k1'] = 'v1-e'
-            del db['k2']
-            db['k3'] = 'v3'
+            txn_db = txn[db]
+            self.assertEqual(txn_db['k1'], 'v1')
+            txn_db['k1'] = 'v1-e'
+            del txn_db['k2']
+            txn_db['k3'] = 'v3'
 
         self.assertEqual(db['k1'], 'v1-e')
         self.assertRaises(KeyError, lambda: db['k2'])
@@ -152,15 +153,65 @@ class TestBasicOperations(BaseTestCase):
         db['k1'] = 'v1'
         db['k2'] = 'v2'
         with self.env.transaction() as txn:
-            self.assertEqual(db['k1'], 'v1')
-            db['k1'] = 'v1-e'
-            del db['k2']
+            txn_db = txn[db]
+            self.assertEqual(txn_db['k1'], 'v1')
+            txn_db['k1'] = 'v1-e'
+            del txn_db['k2']
             txn.rollback()
-            db['k3'] = 'v3'
+            txn_db['k3'] = 'v3'
 
         self.assertEqual(db['k1'], 'v1')
         self.assertEqual(db['k2'], 'v2')
         self.assertEqual(db['k3'], 'v3')
+
+    def test_multiple_transaction(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+        txn = self.env.transaction()
+        txn.begin()
+
+        txn_db = txn[db]
+        txn_db['k2'] = 'v2'
+        txn_db['k3'] = 'v3'
+
+        txn2 = self.env.transaction()
+        txn2.begin()
+
+        txn2_db = txn2[db]
+        txn2_db['k1'] = 'v1-e'
+        txn2_db['k4'] = 'v4'
+
+        txn.commit()
+        txn2.commit()
+
+        self.assertEqual(list(db), [('k1', 'v1-e'), ('k2', 'v2'), ('k3', 'v3'),
+                                    ('k4', 'v4')])
+
+    def test_transaction_conflict(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+        txn = self.env.transaction()
+        txn.begin()
+
+        txn_db = txn[db]
+        txn_db['k2'] = 'v2'
+        txn_db['k3'] = 'v3'
+
+        txn2 = self.env.transaction()
+        txn2.begin()
+
+        txn2_db = txn2[db]
+        txn2_db['k2'] = 'v2-e'
+
+        # txn is not finished, waiting for concurrent txn to finish.
+        self.assertRaises(SophiaError, txn2.commit)
+        txn.commit()
+
+        # txn2 was rolled back by another concurrent txn.
+        self.assertRaises(SophiaError, txn2.commit)
+
+        # Only changes from txn are present.
+        self.assertEqual(list(db), [('k1', 'v1'), ('k2', 'v2'), ('k3', 'v3')])
 
     def test_cursor(self):
         db = self.env['main']
@@ -206,23 +257,28 @@ class TestMultipleDatabases(BaseTestCase):
         scnd.update(k1='v1_2', k2='v2_2')
 
         with self.env.transaction() as txn:
-            del main['k1']
-            main['k2'] = 'v2-e'
-            main['k3'] = 'v3'
-            del scnd['k2']
-            scnd['k1'] = 'v1_2-e'
+            t_main = txn[main]
+            t_scnd = txn[scnd]
+
+            del t_main['k1']
+            t_main['k2'] = 'v2-e'
+            t_main['k3'] = 'v3'
+            del t_scnd['k2']
+            t_scnd['k1'] = 'v1_2-e'
 
         self.assertEqual(list(main), [('k2', 'v2-e'), ('k3', 'v3')])
         self.assertEqual(list(scnd), [('k1', 'v1_2-e')])
 
         with self.env.transaction() as txn:
-            del main['k2']
-            scnd['k3'] = 'v3_2'
+            t_main = txn[main]
+            t_scnd = txn[scnd]
+            del t_main['k2']
+            t_scnd['k3'] = 'v3_2'
             txn.rollback()
-            self.assertEqual(main['k2'], 'v2-e')
-            self.assertRaises(KeyError, lambda: scnd['k3'])
-            main['k3'] = 'v3-e'
-            scnd['k2'] = 'v2_2-e'
+            self.assertEqual(t_main['k2'], 'v2-e')
+            self.assertRaises(KeyError, lambda: t_scnd['k3'])
+            t_main['k3'] = 'v3-e'
+            t_scnd['k2'] = 'v2_2-e'
 
         self.assertEqual(list(main), [('k2', 'v2-e'), ('k3', 'v3-e')])
         self.assertEqual(list(scnd), [('k1', 'v1_2-e'), ('k2', 'v2_2-e')])

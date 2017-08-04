@@ -188,7 +188,6 @@ cdef class Sophia(object):
         dict database_lookup
         list databases
         readonly bytes path
-        Transaction _transaction
         void *env
 
     def __cinit__(self):
@@ -200,7 +199,6 @@ cdef class Sophia(object):
         self.database_lookup = {}
         self.databases = []
         self.path = encode(path)
-        self._transaction = None
 
     def add_database(self, name, Schema schema):
         cdef:
@@ -333,7 +331,6 @@ cdef class Transaction(object):
 
     cdef _reset(self, bint begin):
         self.txn = <void *>0
-        self.env._transaction = None
         if begin:
             self.begin()
 
@@ -341,10 +338,7 @@ cdef class Transaction(object):
         check_open(self.env)
         if self.txn:
             raise SophiaError('This transaction has already been started.')
-        if self.env._transaction:
-            raise SophiaError('Another transaction is currently open.')
         self.txn = sp_begin(self.env.env)
-        self.env._transaction = self
 
     cpdef commit(self, begin=True):
         check_open(self.env)
@@ -354,9 +348,11 @@ cdef class Transaction(object):
 
         cdef int rc = sp_commit(self.txn)
         if rc == 1:
+            self.txn = <void *>0
             raise SophiaError('transaction was rolled back by another '
                               'concurrent transaction.')
         elif rc == 2:
+            # Do not clear out self.txn because we may be able to commit later.
             raise SophiaError('transaction is not finished, waiting for a '
                               'concurrent transaction to finish.')
         self._reset(begin)
@@ -382,6 +378,15 @@ cdef class Transaction(object):
             except:
                 self.rollback(False)
                 raise
+
+    def __getitem__(self, database):
+        if not isinstance(database, Database):
+            raise SophiaError('Transaction __getitem__ value must be a '
+                              'Database instance.')
+        return DatabaseTransaction(database, self)
+
+    cdef Database get_database(self, Database database):
+        return DatabaseTransaction(database, self)
 
 
 SCHEMA_STRING = b'string'
@@ -569,6 +574,10 @@ cdef class Schema(object):
             accum.append(index.get_key(doc.handle))
         return tuple(accum)
 
+    @classmethod
+    def key_value(cls):
+        return Schema([StringIndex('key')], [StringIndex('value')])
+
 
 cdef class Database(object):
     cdef:
@@ -588,13 +597,8 @@ cdef class Database(object):
     def __dealloc__(self):
         self.db = <void *>0
 
-    cdef void *_get_target(self):
-        cdef void *target
-        if self.env._transaction:
-            target = self.env._transaction.txn
-        else:
-            target = self.db
-        return target
+    cdef void *_get_target(self) except NULL:
+        return self.db
 
     cdef _set(self, tuple key, tuple value):
         cdef:
@@ -683,12 +687,10 @@ cdef class Database(object):
                 self._set(tkey, tvalue)
 
     def update(self, dict _data=None, **kwargs):
+        cdef Transaction txn
         check_open(self.env)
-        if self.env._transaction:
-            self._update(_data, kwargs)
-        else:
-            with self.env.transaction():
-                self._update(_data, kwargs)
+        with self.env.transaction() as txn:
+            txn.get_database(self)._update(_data, kwargs)
 
     def multi_get(self, *keys):
         cdef list accum = []
@@ -800,6 +802,21 @@ cdef class Database(object):
     scheduler_gc = __dbconfig_ro__('scheduler.gc')
     scheduler_expire = __dbconfig_ro__('scheduler.expire')
     scheduler_backup = __dbconfig_ro__('scheduler.backup')
+
+
+cdef class DatabaseTransaction(Database):
+    cdef:
+        Transaction transaction
+
+    def __init__(self, Database db, Transaction transaction):
+        super(DatabaseTransaction, self).__init__(db.env, db.name, db.schema)
+        self.transaction = transaction
+        self.db = db.db
+
+    cdef void *_get_target(self) except NULL:
+        if not self.transaction.txn:
+            raise SophiaError('Transaction is not active.')
+        return self.transaction.txn
 
 
 cdef class Cursor(object):
