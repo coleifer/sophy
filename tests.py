@@ -392,5 +392,71 @@ class TestMultiKeyValue(BaseTestCase):
         self.assertEqual(nums[1], (0, 0, 0, 0, 255))
 
 
+class TestMultiKeyValue(BaseTestCase):
+    databases = (
+        ('main',
+         Schema([U32Index('a'), U32Index('b'), U32Index('c')],
+                [U32Index('value')])),
+        ('secondary',
+         Schema([StringIndex('a'), U32Index('b')],
+                [U32Index('value')])),
+    )
+
+    def setUp(self):
+        super(TestMultiKeyValue, self).setUp()
+        self.db = self.env['main']
+
+    def test_cursor_ops(self):
+        for i in range(10):
+            for j in range(5):
+                for k in range(3):
+                    self.db[i, j, k] = i * j * k
+
+        data = self.db[(3, 3, 0):(4, 2, 1)]
+        self.assertEqual(list(data), [
+            ((3, 3, 0), 0),
+            ((3, 3, 1), 9),
+            ((3, 3, 2), 18),
+            ((3, 4, 0), 0),
+            ((3, 4, 1), 12),
+            ((3, 4, 2), 24),
+            ((4, 0, 0), 0),
+            ((4, 0, 1), 0),
+            ((4, 0, 2), 0),
+            ((4, 1, 0), 0),
+            ((4, 1, 1), 4),
+            ((4, 1, 2), 8),
+            ((4, 2, 0), 0),
+            ((4, 2, 1), 8),
+        ])
+
+    def test_ordering_string(self):
+        db = self.env['secondary']
+        db['a', 0] = 1
+        db['b', 1] = 2
+        db['b', 0] = 3
+        db['d', 0] = 4
+        db['c', 9] = 5
+        db['c', 3] = 6
+
+        data = list(db[('b', 0):('\xff', 5)])
+        self.assertEqual(data, [
+            (('b', 0), 3),
+            (('b', 1), 2),
+            (('c', 3), 6),
+            (('c', 9), 5),
+            (('d', 0), 4)])
+
+        data = list(db[('\x00', 0):('b', 5)])
+        self.assertEqual(data, [
+            (('a', 0), 1),
+            (('b', 0), 3),
+            (('b', 1), 2)])
+
+        data = list(db[('bb', 0):('cc', 5)])
+        self.assertEqual(data, [
+            (('c', 3), 6),
+            (('c', 9), 5)])
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)

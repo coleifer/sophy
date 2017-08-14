@@ -339,8 +339,90 @@ txn2.commit()  # ERROR !!
 
 ## Multi-field keys and values
 
-TODO
+Sophia supports multi-field keys and values. Additionally, the individual
+fields can have different data-types. Sophy provides the following field
+types:
+
+* `StringIndex`
+* `U64Index` and reversed, `U64RevIndex`
+* `U32Index` and reversed, `U32RevIndex`
+* `U16Index` and reversed, `U16RevIndex`
+* `U8Index` and reversed, `U8RevIndex`
+
+To declare a database with a multi-field key or value, you will pass the
+individual fields as arguments when constructing the `Schema` object. To
+initialize a schema where the key is composed of two strings and a 64-bit
+unsigned integer, and the value is composed of a string, you would write:
+
+```python
+
+key = [StringIndex('last_name'), StringIndex('first_name'), U64Index('area_code')]
+value = [StringIndex('address_data')]
+schema = Schema(key_parts=key, value_parts=value)
+
+address_book = sophia_env.add_data('address_book', schema)
+```
+
+To store data, we use the same dictionary methods as usual, just passing tuples
+instead of individual values:
+
+```python
+sophia_env.open()
+
+address_book['kitty', 'huey', 66604] = '123 Meow St'
+address_book['puppy', 'mickey', 66604] = '1337 Woof-woof Court'
+```
+
+To retrieve our data:
+
+```python
+huey_address = address_book['kitty', 'huey', 66604]
+```
+
+To delete a row:
+
+```python
+del address_book['puppy', 'mickey', 66604]
+```
+
+Indexing and slicing works as you would expect.
+
+**Note:** when working with a multi-part value, a tuple containing the value
+components will be returned. When working with a scalar value, instead of
+returning a 1-item tuple, the value itself is returned.
 
 ## Configuring and Administering Sophia
 
-TODO
+Sophia can be configured using special properties on the `Sophia` and
+`Database` objects. Refer to the [configuration
+document](http://sophia.systems/v2.2/conf/sophia.html) for the details on the
+available options, including whether they are read-only, and the expected
+data-type.
+
+For example, to query Sophia's status, you can use the `status` property, which
+is a readonly setting returning a string:
+
+```python
+print env.status
+"online"
+```
+
+Other properties can be changed by assigning a new value to the property. For
+example, to read and then increase the number of threads used by the scheduler:
+
+```python
+nthreads = env.scheduler_threads
+env.scheduler_threads = nthread + 2
+```
+
+Database-specific properties are available as well. For example to get the
+number of GET and SET operations performed on a database, you would write:
+
+```python
+print db.stat_get, 'get operations'
+print db.stat_set, 'set operations'
+```
+
+Refer to the [documentation](http://sophia.systems/v2.2/conf/sophia.html) for
+complete lists of settings. Dotted-paths are translated into
+underscore-separated attributes.
