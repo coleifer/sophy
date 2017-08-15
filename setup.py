@@ -21,13 +21,13 @@ library_source = 'src/sophia.c'
 
 sophy = Extension(
     'sophy',
-    extra_compile_args=['-g', '-O0'],
-    extra_link_args=['-g'],
+    #extra_compile_args=['-g', '-O0'],
+    #extra_link_args=['-g'],
     sources=[python_source, library_source])
 
 setup(
     name='sophy',
-    version='0.3.0',
+    version='0.3.1',
     description='Python bindings for the sophia database.',
     author='Charles Leifer',
     author_email='',
