@@ -409,6 +409,38 @@ cdef class BaseIndex(object):
     cdef get_key(self, void *obj): pass
 
 
+cdef class BytesIndex(BaseIndex):
+    by_reference = True
+    data_type = SCHEMA_STRING
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            bytes bvalue
+            char *buf
+            Py_ssize_t buflen
+
+        if not PyBytes_Check(value):
+            if IS_PY3K:
+                bvalue = bytes(value, 'raw_unicode_escape')
+            else:
+                bvalue = bytes(value)
+        else:
+            bvalue = value
+
+        PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
+        sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        return bvalue
+
+    cdef get_key(self, void *obj):
+        cdef:
+            char *buf
+            int buflen
+
+        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
+        if buf:
+            return buf[:buflen - 1]
+
+
 cdef class StringIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
@@ -424,7 +456,13 @@ cdef class StringIndex(BaseIndex):
         return bvalue
 
     cdef get_key(self, void *obj):
-        return _getstring(obj, <const char *>self.name)
+        cdef:
+            char *buf
+            int buflen
+
+        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
+        if buf:
+            return buf[:buflen - 1].decode('utf-8')
 
 
 cdef class U64Index(BaseIndex):

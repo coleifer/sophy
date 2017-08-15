@@ -398,7 +398,7 @@ class TestMultiKeyValue(BaseTestCase):
          Schema([U32Index('a'), U32Index('b'), U32Index('c')],
                 [U32Index('value')])),
         ('secondary',
-         Schema([StringIndex('a'), U32Index('b')],
+         Schema([BytesIndex('a'), U32Index('b')],
                 [U32Index('value')])),
     )
 
@@ -439,24 +439,56 @@ class TestMultiKeyValue(BaseTestCase):
         db['c', 9] = 5
         db['c', 3] = 6
 
-        data = list(db[('b', 0):('\xff', 5)])
+        data = list(db[(b'b', 0):(b'\xff', 5)])
         self.assertEqual(data, [
-            (('b', 0), 3),
-            (('b', 1), 2),
-            (('c', 3), 6),
-            (('c', 9), 5),
-            (('d', 0), 4)])
+            ((b'b', 0), 3),
+            ((b'b', 1), 2),
+            ((b'c', 3), 6),
+            ((b'c', 9), 5),
+            ((b'd', 0), 4)])
 
-        data = list(db[('\x00', 0):('b', 5)])
+        data = list(db[(b'\x00', 0):(b'b', 5)])
         self.assertEqual(data, [
-            (('a', 0), 1),
-            (('b', 0), 3),
-            (('b', 1), 2)])
+            ((b'a', 0), 1),
+            ((b'b', 0), 3),
+            ((b'b', 1), 2)])
 
-        data = list(db[('bb', 0):('cc', 5)])
+        data = list(db[(b'bb', 0):(b'cc', 5)])
         self.assertEqual(data, [
-            (('c', 3), 6),
-            (('c', 9), 5)])
+            ((b'c', 3), 6),
+            ((b'c', 9), 5)])
+
+
+class TestStringVsBytes(BaseTestCase):
+    databases = (
+        ('string',
+         Schema([StringIndex('key')],
+                [StringIndex('value')])),
+        ('bytes',
+         Schema([BytesIndex('key')],
+                [BytesIndex('value')])),
+    )
+
+    def setUp(self):
+        super(TestStringVsBytes, self).setUp()
+        self.sdb = self.env['string']
+        self.bdb = self.env['bytes']
+
+    def test_string_encoding(self):
+        self.sdb[u'k1'] = u'v1'
+        self.assertEqual(self.sdb[u'k1'], u'v1')
+
+        smartquotes = u'\u2036hello\u2033'
+        encoded = smartquotes.encode('utf-8')
+        self.sdb[smartquotes] = smartquotes
+        self.assertEqual(self.sdb[encoded], smartquotes)
+
+        self.bdb[encoded] = encoded
+        self.assertEqual(self.bdb[encoded], encoded)
+
+        self.bdb[b'\xff'] = b'\xff'
+        self.assertEqual(self.bdb[b'\xff'], b'\xff')
+
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)
