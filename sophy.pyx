@@ -62,11 +62,6 @@ cdef inline _getstring(void *obj, const char *key):
     buf = <char *>sp_getstring(obj, key, &nlen)
     if buf:
         value = buf[:nlen - 1]
-        if IS_PY3K:
-            try:
-                return value.decode('utf-8')
-            except UnicodeDecodeError:
-                pass
         return value
 
 cdef inline _check(void *env, int rc):

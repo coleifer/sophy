@@ -10,6 +10,12 @@ DB_NAME = 'db-test'
 TEST_DIR = 'sophia-test'
 
 
+if sys.version_info[0] == 2:
+    b_lit = lambda s: s
+else:
+    b_lit = lambda s: s.encode('latin-1') if not isinstance(s, bytes) else s
+
+
 class BaseTestCase(unittest.TestCase):
     databases = (
         ('main', Schema([StringIndex('key')], [StringIndex('value')])),
@@ -35,10 +41,10 @@ class BaseTestCase(unittest.TestCase):
 
 class TestConfiguration(BaseTestCase):
     def test_version(self):
-        self.assertEqual(self.env.version, '2.2')
+        self.assertEqual(self.env.version, b_lit('2.2'))
 
     def test_status(self):
-        self.assertEqual(self.env.status, 'online')
+        self.assertEqual(self.env.status, b_lit('online'))
 
 
 class TestBasicOperations(BaseTestCase):
