@@ -2,6 +2,7 @@ include README.md
 include LICENSE
 include src/sophia.c
 include src/sophia.h
+include sophy.c
 include sophy.pyx
 include tests.py
 recursive-include docs *
