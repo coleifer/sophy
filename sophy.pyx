@@ -1,6 +1,7 @@
 from cpython.bytes cimport PyBytes_AsStringAndSize
 from cpython.bytes cimport PyBytes_Check
 from cpython.unicode cimport PyUnicode_AsUTF8String
+from cpython.unicode cimport PyUnicode_Check
 from cpython.version cimport PY_MAJOR_VERSION
 from libc.stdint cimport int64_t
 from libc.stdint cimport uint8_t
@@ -42,14 +43,14 @@ cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
 cdef inline bytes encode(obj):
     cdef bytes result
-    if isinstance(obj, unicode):
+    if PyUnicode_Check(obj):
         result = PyUnicode_AsUTF8String(obj)
     elif PyBytes_Check(obj):
         result = <bytes>obj
     elif obj is None:
         return None
     elif IS_PY3K:
-        result = bytes(str(obj), 'utf-8')
+        result = PyUnicode_AsUTF8String(str(obj))
     else:
         result = bytes(obj)
     return result
