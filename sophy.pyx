@@ -547,9 +547,13 @@ cdef class Schema(object):
         self.key = []
         self.value = []
         if key_parts is not None:
+            if isinstance(key_parts, BaseIndex):
+                key_parts = (key_parts,)
             for index in key_parts:
                 self.add_key(index)
         if value_parts is not None:
+            if isinstance(value_parts, BaseIndex):
+                value_parts = (value_parts,)
             for index in value_parts:
                 self.add_value(index)
 
@@ -821,6 +825,7 @@ cdef class Database(object):
     index_page_count = __dbconfig_ro__('index.page_count')
 
     compaction_cache = __dbconfig__('compaction.cache')
+    compaction_checkpoint = __dbconfig__('compaction.checkpoint')
     compaction_node_size = __dbconfig__('compaction.node_size')
     compaction_page_size = __dbconfig__('compaction.page_size')
     compaction_page_checksum = __dbconfig__('compaction.page_checksum')
@@ -847,6 +852,7 @@ cdef class Database(object):
     stat_cursor_read_cache = __dbconfig_ro__('stat.cursor_read_cache', True)
     stat_cursor_ops = __dbconfig_ro__('stat.cursor_ops', True)
 
+    scheduler_checkpoint = __dbconfig_ro__('scheduler.checkpoint')
     scheduler_gc = __dbconfig_ro__('scheduler.gc')
     scheduler_expire = __dbconfig_ro__('scheduler.expire')
     scheduler_backup = __dbconfig_ro__('scheduler.backup')
