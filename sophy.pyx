@@ -680,6 +680,15 @@ cdef class Database(object):
         doc.release_refs()
         return ret
 
+    def delete(self, key):
+        check_open(self.env)
+        return self._delete((key,) if not isinstance(key, tuple) else key)
+
+    def multi_delete(self, *keys):
+        check_open(self.env)
+        for key in keys:
+            self._delete((key,) if not isinstance(key, tuple) else key)
+
     def __getitem__(self, key):
         check_open(self.env)
         if isinstance(key, slice):

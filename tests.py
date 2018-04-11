@@ -63,6 +63,8 @@ class TestBasicOperations(BaseTestCase):
 
         db['huey'] = 'kitten'
         self.assertEqual(db['huey'], 'kitten')
+        db.delete('huey')
+        self.assertEqual(db.multi_get('huey'), [None])
 
     def test_iterables(self):
         db = self.env['main']
