@@ -639,6 +639,12 @@ cdef class Database(object):
         sp_set(self._get_target(), doc.handle)
         doc.release_refs()
 
+    def set(self, key, value):
+        check_open(self.env)
+        key = (key,) if not isinstance(key, tuple) else key
+        value = (value,) if not isinstance(value, tuple) else value
+        return self._set(key, value)
+
     cdef tuple _get(self, tuple key):
         cdef:
             void *handle = sp_document(self.db)
@@ -655,6 +661,14 @@ cdef class Database(object):
         data = self.schema.get_value(doc)
         sp_destroy(result)
         return data
+
+    def get(self, key, default=None):
+        check_open(self.env)
+        data = self._get((key,) if not isinstance(key, tuple) else key)
+        if data is None:
+            return default
+
+        return data if self.schema.multi_value else data[0]
 
     cdef bint _exists(self, tuple key):
         cdef:
@@ -701,14 +715,10 @@ cdef class Database(object):
             return data if self.schema.multi_value else data[0]
 
     def __setitem__(self, key, value):
-        check_open(self.env)
-        key = (key,) if not isinstance(key, tuple) else key
-        value = (value,) if not isinstance(value, tuple) else value
-        self._set(key, value)
+        self.set(key, value)
 
     def __delitem__(self, key):
-        check_open(self.env)
-        self._delete((key,) if not isinstance(key, tuple) else key)
+        self.delete(key)
 
     def __contains__(self, key):
         check_open(self.env)

@@ -66,6 +66,15 @@ class TestBasicOperations(BaseTestCase):
         db.delete('huey')
         self.assertEqual(db.multi_get('huey'), [None])
 
+        db.set('k1', 'v1')
+        db.set('k2', 'v2')
+        self.assertEqual(db.get('k1'), 'v1')
+        self.assertEqual(db.get('k2'), 'v2')
+        self.assertTrue(db.get('k3') is None)
+        self.assertEqual(db.get('k3', 'xx'), 'xx')
+        self.assertTrue(db.delete('k1'))
+        self.assertTrue(db.delete('k1'))
+
     def test_iterables(self):
         db = self.env['main']
         for i in range(4):
@@ -294,6 +303,15 @@ class TestMultipleDatabases(BaseTestCase):
     def test_open_close(self):
         self.assertTrue(self.env.close())
         self.assertTrue(self.env.open())
+
+    def test_add_db(self):
+        schema = Schema([StringIndex('key')], [StringIndex('value')])
+        self.env.add_database('db-3', schema)
+        self.env.close()
+        self.env.open()
+        db = self.env['db-3']
+        db['k1'] = 'v1'
+        self.assertEqual(db['k1'], 'v1')
 
 
 class TestMultiKeyValue(BaseTestCase):
