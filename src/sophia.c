@@ -10,8 +10,8 @@
 /* amalgamation build
  *
  * version:     2.2
- * build:       eca1348
- * build date:  Mon Jul 31 14:07:00 CDT 2017
+ * build:       2ecfe01
+ * build date:  Wed Apr 11 11:21:18 CDT 2018
  *
  * compilation:
  * cc -O2 -DNDEBUG -std=c99 -pedantic -Wall -Wextra -pthread -c sophia.c
@@ -19,7 +19,7 @@
 
 /* {{{ */
 
-#define SOPHIA_BUILD "eca1348"
+#define SOPHIA_BUILD "2ecfe01"
 
 #line 1 "sophia/std/ss_posix.h"
 #ifndef SS_POSIX_H_
@@ -2165,7 +2165,7 @@ struct ssavg {
 	uint64_t total;
 	uint32_t min, max;
 	double   avg;
-	char sz[32];
+	char     sz[32];
 };
 
 static inline void
@@ -2173,9 +2173,9 @@ ss_avginit(ssavg *a)
 {
 	a->count = 0;
 	a->total = 0;
-	a->min = 0;
-	a->max = 0;
-	a->avg = 0;
+	a->min   = UINT32_MAX;
+	a->max   = 0;
+	a->avg   = 0;
 }
 
 static inline void
@@ -2193,8 +2193,11 @@ ss_avgupdate(ssavg *a, uint32_t v)
 static inline void
 ss_avgprepare(ssavg *a)
 {
+	uint32_t min = a->min;
+	if (ssunlikely(min == UINT32_MAX))
+		min = 0;
 	snprintf(a->sz, sizeof(a->sz), "%"PRIu32" %"PRIu32" %.1f",
-	         a->min, a->max, a->avg);
+	         min, a->max, a->avg);
 }
 
 #endif
@@ -8767,7 +8770,8 @@ ss_stdvfs_mremap(ssvfs *f ssunused, ssmmap *m, uint64_t size)
 #if  defined(__APPLE__) || \
      defined(__FreeBSD__) || \
     (defined(__FreeBSD_kernel__) && defined(__GLIBC__)) || \
-     defined(__DragonFly__)
+     defined(__DragonFly__) || \
+     defined(__NetBSD__)
 	p = mmap(NULL, size, PROT_READ|PROT_WRITE,
 	         MAP_PRIVATE|MAP_ANON, -1, 0);
 	if (p == MAP_FAILED)
@@ -9125,6 +9129,10 @@ int ss_thread_setname(ssthread *t, char *name)
 	#if defined(__APPLE__)
 		(void)t;
 		return pthread_setname_np(name);
+	#elif defined(__NetBSD__)
+		return pthread_setname_np(t->id, "%s", (void*)name);
+	#elif defined(__FreeBSD__)
+		return pthread_set_name_np(t->id, name);
 	#else
 		return pthread_setname_np(t->id, name);
 	#endif
@@ -22064,16 +22072,18 @@ struct siplanner {
 };
 
 /* plan */
-#define SI_COMPACTION 1
-#define SI_EXPIRE     2
-#define SI_GC         4
-#define SI_NODEGC     8
-#define SI_BACKUP     16
-#define SI_BACKUPEND  32
+#define SI_CHECKPOINT 1
+#define SI_COMPACTION 2
+#define SI_EXPIRE     4
+#define SI_GC         8
+#define SI_NODEGC     16
+#define SI_BACKUP     32
+#define SI_BACKUPEND  64
 
 struct siplan {
 	int plan;
-	/* compaction:
+	/* checkpoint:
+	 * compaction:
 	 * gc:
 	 *   a: lsn
 	 *   b: percent
@@ -22958,6 +22968,7 @@ si_execute(si *i, sdc *c, siplan *plan, uint64_t vlsn)
 {
 	int rc = -1;
 	switch (plan->plan) {
+	case SI_CHECKPOINT:
 	case SI_COMPACTION:
 	case SI_GC:
 	case SI_EXPIRE:
@@ -23852,6 +23863,8 @@ int si_plannertrace(siplan *p, uint32_t id, sstrace *t)
 {
 	char *plan = NULL;
 	switch (p->plan) {
+	case SI_CHECKPOINT: plan = "checkpoint";
+		break;
 	case SI_COMPACTION: plan = "compaction";
 		break;
 	case SI_GC: plan = "gc";
@@ -23914,6 +23927,32 @@ si_plannerpeek_backup(siplanner *p, siplan *plan)
 	return SI_PMATCH;
 	}
 	return SI_PNONE;
+match:
+	si_nodelock(n);
+	plan->node = n;
+	return SI_PMATCH;
+}
+
+static inline siplannerrc
+si_plannerpeek_checkpoint(siplanner *p, siplan *plan)
+{
+	/* try to peek a node which has min
+	 * lsn <= required value
+	*/
+	siplannerrc rc = SI_PNONE;
+	sinode *n;
+	ssrqnode *pn = NULL;
+	while ((pn = ss_rqprev(&p->memory, pn))) {
+		n = sscast(pn, sinode, nodememory);
+		if (n->i0.lsnmin <= plan->a) {
+			if (n->flags & SI_LOCK) {
+				rc = SI_PRETRY;
+				continue;
+			}
+			goto match;
+		}
+	}
+	return rc;
 match:
 	si_nodelock(n);
 	plan->node = n;
@@ -24032,6 +24071,8 @@ siplannerrc
 si_planner(siplanner *p, siplan *plan)
 {
 	switch (plan->plan) {
+	case SI_CHECKPOINT:
+		return si_plannerpeek_checkpoint(p, plan);
 	case SI_COMPACTION:
 		return si_plannerpeek_memory(p, plan);
 	case SI_NODEGC:
@@ -25622,6 +25663,9 @@ struct scdb {
 	uint64_t  gc_time;
 	uint32_t  gc;
 	uint32_t  backup;
+	uint32_t  checkpoint;
+	uint64_t  checkpoint_vlsn;
+	uint64_t  checkpoint_time;
 };
 
 struct sctask {
@@ -25754,6 +25798,21 @@ sc_next(sc *s) {
 }
 
 static inline void
+sc_task_checkpoint(scdb *db, uint64_t vlsn)
+{
+	db->checkpoint = 1;
+	db->checkpoint_vlsn = vlsn;
+}
+
+static inline void
+sc_task_checkpoint_done(scdb *db, uint64_t now)
+{
+	db->checkpoint = 0;
+	db->checkpoint_vlsn = 0;
+	db->checkpoint_time = now;
+}
+
+static inline void
 sc_task_expire(scdb *db)
 {
 	db->expire = 1;
@@ -25826,6 +25885,7 @@ int sc_ctl_call(sc*, uint64_t);
 int sc_ctl_compaction(sc*, uint64_t, si*);
 int sc_ctl_expire(sc*, si*);
 int sc_ctl_gc(sc*, si*);
+int sc_ctl_checkpoint(sc*, uint64_t, si*);
 int sc_ctl_backup(sc*);
 
 #endif
@@ -26036,11 +26096,14 @@ static inline int
 sc_prepare(scdb *db)
 {
 	uint64_t now = ss_utime();
-	db->expire      = 0;
-	db->expire_time = now;
-	db->gc          = 0;
-	db->gc_time     = now;
-	db->backup      = 0;
+	db->checkpoint      = 0;
+	db->checkpoint_time = now;
+	db->checkpoint_vlsn = 0;
+	db->expire          = 0;
+	db->expire_time     = now;
+	db->gc              = 0;
+	db->gc_time         = now;
+	db->backup          = 0;
 	return 0;
 }
 
@@ -26208,6 +26271,15 @@ int sc_ctl_gc(sc *s, si *index)
 	return 0;
 }
 
+int sc_ctl_checkpoint(sc *s, uint64_t vlsn, si *index)
+{
+	ss_mutexlock(&s->lock);
+	scdb *db = sc_of(s, index);
+	sc_task_checkpoint(db, vlsn);
+	ss_mutexunlock(&s->lock);
+	return 0;
+}
+
 int sc_ctl_backup(sc *s)
 {
 	int rc = sc_backupstart(s);
@@ -26301,6 +26373,7 @@ sc_taskend(sc *s, sctask *t)
 	ss_mutexlock(&s->lock);
 	scdb *db = t->db;
 	switch (t->plan.plan) {
+	case SI_CHECKPOINT:
 	case SI_COMPACTION:
 		t->gc = 1;
 		break;
@@ -26331,6 +26404,22 @@ sc_do(sc *s, sctask *task)
 	sicompaction *c = &db->index->scheme.compaction;
 
 	ss_trace(&task->w->trace, "%s", "schedule");
+
+	/* checkpoint */
+	if (db->checkpoint) {
+		task->plan.plan = SI_CHECKPOINT;
+		task->plan.a = db->checkpoint_vlsn;
+		rc = si_plan(db->index, &task->plan);
+		switch (rc) {
+		case SI_PMATCH:
+			return rc;
+		case SI_PNONE:
+			sc_task_checkpoint_done(db, task->time);
+			break;
+		case SI_PRETRY:
+			break;
+		}
+	}
 
 	/* node delayed gc */
 	task->plan.plan = SI_NODEGC;
@@ -27592,6 +27681,17 @@ se_confdb_gc(srconf *c, srconfstmt *s)
 }
 
 static inline int
+se_confdb_checkpoint(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	sedb *db = c->value;
+	se *e = se_of(&db->o);
+	uint64_t vlsn = sx_vlsn(&e->xm);
+	return sc_ctl_checkpoint(&e->scheduler, vlsn, db->index);
+}
+
+static inline int
 se_confdb_expire(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
@@ -27706,6 +27806,7 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc, int serialize)
 			sr_c(&p, pc, se_confdb_compaction, "compact", SS_FUNCTION, o);
 			sr_c(&p, pc, se_confdb_gc, "gc", SS_FUNCTION, o);
 			sr_c(&p, pc, se_confdb_expire, "expire", SS_FUNCTION, o);
+			sr_c(&p, pc, se_confdb_checkpoint, "checkpoint", SS_FUNCTION, o);
 		}
 
 		/* limit */
@@ -27741,6 +27842,7 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc, int serialize)
 		/* scheduler */
 		srconf *scheduler = *pc;
 		p = NULL;
+		sr_C(&p, pc, se_confv, "checkpoint", SS_U32, &o->scp.state.checkpoint, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "gc", SS_U32, &o->scp.state.gc, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "expire", SS_U32, &o->scp.state.expire, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "backup", SS_U32, &o->scp.state.backup, SR_RO, NULL);
