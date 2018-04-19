@@ -69,9 +69,9 @@ cdef inline _check(void *env, int rc):
     if rc == -1:
         error = _getstring(env, 'sophia.error')
         if error:
-            raise Exception(error)
+            raise SophiaError(error)
         else:
-            raise Exception('unknown error occurred.')
+            raise SophiaError('unknown error occurred.')
 
 cdef inline check_open(Sophia env):
     if not env.is_open:
@@ -191,13 +191,20 @@ cdef class Sophia(object):
         self.path = encode(path)
 
     def add_database(self, name, Schema schema):
-        cdef:
-            db = Database(self, name, schema)
+        cdef Database db
+
+        if self.is_open:
+            raise SophiaError('cannot add database to open environment.')
+
+        db = Database(self, name, schema)
         self.databases.append(db)
         self.database_lookup[name] = db
         return db
 
     def remove_database(self, name):
+        if self.is_open:
+            raise SophiaError('cannot remove database from open environment.')
+
         db = self.database_lookup.pop(name)
         self.databases.remove(db)
 
@@ -324,14 +331,14 @@ cdef class Transaction(object):
         if begin:
             self.begin()
 
-    cpdef Transaction begin(self):
+    def begin(self):
         check_open(self.env)
         if self.txn:
             raise SophiaError('This transaction has already been started.')
         self.txn = sp_begin(self.env.env)
         return self
 
-    cpdef commit(self, begin=True):
+    def commit(self, begin=True):
         check_open(self.env)
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '
@@ -348,7 +355,7 @@ cdef class Transaction(object):
                               'concurrent transaction to finish.')
         self._reset(begin)
 
-    cpdef rollback(self, begin=True):
+    def rollback(self, begin=True):
         check_open(self.env)
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '

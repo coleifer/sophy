@@ -306,8 +306,10 @@ class TestMultipleDatabases(BaseTestCase):
 
     def test_add_db(self):
         schema = Schema([StringIndex('key')], [StringIndex('value')])
-        self.env.add_database('db-3', schema)
+        self.assertRaises(SophiaError, self.env.add_database, 'db-3', schema)
         self.env.close()
+
+        self.env.add_database('db-3', schema)
         self.env.open()
         db = self.env['db-3']
         db['k1'] = 'v1'
