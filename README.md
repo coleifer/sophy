@@ -110,8 +110,8 @@ from sophy import Sophia, Schema, StringIndex
 # various data and metadata for our databases.
 env = Sophia('/path/to/store/data')
 
-# We'll define a very simple schema consisting of a single binary value for the
-# key, and a single binary value for the associated value.
+# We'll define a very simple schema consisting of a single utf-8 string for the
+# key, and a single utf-8 string for the associated value.
 schema = Schema(key_parts=[StringIndex('key')],
                 value_parts=[StringIndex('value')])
 
@@ -337,17 +337,30 @@ txn2.commit()  # ERROR !!
 # SophiaError('transasction rolled back by another concurrent transaction.')
 ```
 
-## Multi-field keys and values
+## Index types, multi-field keys and values
 
 Sophia supports multi-field keys and values. Additionally, the individual
 fields can have different data-types. Sophy provides the following field
 types:
 
-* `StringIndex`
+* `StringIndex` - stores UTF8-encoded strings, e.g. text.
+* `BytesIndex` - stores bytestrings, e.g. binary data.
 * `U64Index` and reversed, `U64RevIndex`
 * `U32Index` and reversed, `U32RevIndex`
 * `U16Index` and reversed, `U16RevIndex`
 * `U8Index` and reversed, `U8RevIndex`
+* `SerializedIndex` - which is basically a `BytesIndex` that accepts two
+  functions: one for serializing the value to the db, and another for
+  deserializing.
+
+To store arbitrary data encoded using msgpack, you could use `SerializedIndex`:
+
+```python
+
+schema = Schema([StringIndex('key')],
+                [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+db = sophia_env.add_database('main', schema)
+```
 
 To declare a database with a multi-field key or value, you will pass the
 individual fields as arguments when constructing the `Schema` object. To
@@ -360,7 +373,7 @@ key = [StringIndex('last_name'), StringIndex('first_name'), U64Index('area_code'
 value = [StringIndex('address_data')]
 schema = Schema(key_parts=key, value_parts=value)
 
-address_book = sophia_env.add_data('address_book', schema)
+address_book = sophia_env.add_database('address_book', schema)
 ```
 
 To store data, we use the same dictionary methods as usual, just passing tuples
@@ -403,7 +416,7 @@ For example, to query Sophia's status, you can use the `status` property, which
 is a readonly setting returning a string:
 
 ```python
-print env.status
+print(env.status)
 "online"
 ```
 
@@ -419,8 +432,8 @@ Database-specific properties are available as well. For example to get the
 number of GET and SET operations performed on a database, you would write:
 
 ```python
-print db.stat_get, 'get operations'
-print db.stat_set, 'set operations'
+print(db.stat_get, 'get operations')
+print(db.stat_set, 'set operations')
 ```
 
 Refer to the [documentation](http://sophia.systems/v2.2/conf/sophia.html) for
