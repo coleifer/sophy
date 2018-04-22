@@ -217,16 +217,19 @@ cdef class Sophia(object):
         self.set_string(b'db', db.name)
 
         for i, index in enumerate(db.schema.key):
-            self.set_string(b'db.%s.scheme' % (db.name), index.name)
-            self.set_string(b'db.%s.scheme.%s' % (db.name, index.name),
-                            b'%s,key(%d)' % (index.data_type, i))
+            # db.<name>.scheme = <index name>
+            # db.<name>.scheme.<index name> = <dtype>,key(i)
+            self.set_string(b'.'.join((b'db', db.name, b'scheme')), index.name)
+            self.set_string(b'.'.join((b'db', db.name, b'scheme', index.name)),
+                            encode('%s,key(%d)' % (
+                                index.data_type.decode('utf-8'), i)))
 
         for index in db.schema.value:
-            self.set_string(b'db.%s.scheme' % (db.name), index.name)
-            self.set_string(b'db.%s.scheme.%s' % (db.name, index.name),
+            self.set_string(b'.'.join((b'db', db.name, b'scheme')), index.name)
+            self.set_string(b'.'.join((b'db', db.name, b'scheme', index.name)),
                             index.data_type)
 
-        db.db = sp_getobject(self.env, b'db.%s' % db.name)
+        db.db = sp_getobject(self.env, b'db.' + db.name)
 
     def open(self):
         if self.is_open:
