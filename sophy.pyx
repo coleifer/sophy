@@ -454,7 +454,7 @@ cdef class StringIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
 
-    cpdef str encode(self, value):
+    def encode(self, value):
         return value
 
     cdef set_key(self, void *obj, value):
@@ -469,7 +469,7 @@ cdef class StringIndex(BaseIndex):
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
         return bvalue
 
-    cpdef object decode(self, str value):
+    cpdef object decode(self, value):
         return value
 
     cdef get_key(self, void *obj):
