@@ -426,3 +426,23 @@ print db.stat_set, 'set operations'
 Refer to the [documentation](http://sophia.systems/v2.2/conf/sophia.html) for
 complete lists of settings. Dotted-paths are translated into
 underscore-separated attributes.
+
+
+## User-defined indexes
+
+You may extend `BytesIndex` or `StringIndex` simple like this:
+
+```python
+
+import pickle
+from sophy import BytesIndex
+
+
+class PickleIndex(BytesIndex):
+    def encode(self, obj):
+        return super().encode(pickle.dumps(obj))
+
+    def decode(self, value):
+        return super().decode(pickle.loads(value))
+
+```
