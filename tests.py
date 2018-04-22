@@ -1,4 +1,5 @@
 import os
+import pickle
 import shutil
 import sys
 import unittest
@@ -510,6 +511,28 @@ class TestStringVsBytes(BaseTestCase):
 
         self.bdb[b'\xff'] = b'\xff'
         self.assertEqual(self.bdb[b'\xff'], b'\xff')
+
+
+class TestPickledIndex(BaseTestCase):
+    databases = (
+        ('main',
+         Schema(StringIndex('key'),
+                SerializedIndex('value', pickle.dumps, pickle.loads))),
+    )
+
+    def setUp(self):
+        super(TestPickledIndex, self).setUp()
+        self.db = self.env['main']
+
+    def test_serialize_deserialize(self):
+        self.db['k1'] = 'v1'
+        self.db['k2'] = {'foo': 'bar', 'baz': 1}
+        self.db['k3'] = None
+
+        self.assertEqual(self.db['k1'], 'v1')
+        self.assertEqual(self.db['k2'], {'foo': 'bar', 'baz': 1})
+        self.assertTrue(self.db['k3'] is None)
+        self.assertRaises(KeyError, lambda: self.db['k4'])
 
 
 if __name__ == '__main__':

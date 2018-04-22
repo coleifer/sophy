@@ -413,6 +413,41 @@ cdef class BaseIndex(object):
     cdef get_key(self, void *obj): pass
 
 
+cdef class SerializedIndex(BaseIndex):
+    cdef object _serialize, _deserialize
+
+    by_reference = True
+    data_type = SCHEMA_STRING
+
+    def __init__(self, name, serialize, deserialize):
+        self.name = encode(name)
+        self._serialize = serialize
+        self._deserialize = deserialize
+
+    cdef set_key(self, void *obj, value):
+        cdef:
+            bytes bvalue
+            char *buf
+            Py_ssize_t buflen
+
+        bvalue = self._serialize(value)
+        if not PyBytes_Check(bvalue):
+            bvalue = encode(bvalue)
+
+        PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
+        sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        return bvalue
+
+    cdef get_key(self, void *obj):
+        cdef:
+            char *buf
+            int buflen
+
+        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
+        if buf:
+            return self._deserialize(buf[:buflen - 1])
+
+
 cdef class BytesIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
