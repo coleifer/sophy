@@ -2,33 +2,55 @@ from distutils.core import setup, Extension
 
 try:
     from Cython.Build import cythonize
+
+    extensions = cythonize([
+        Extension(
+            "sonya.sophia",
+            ["sonya/sophia.pyx", "sonya/src/sophia.c"],
+        ),
+    ], force=True, emit_linenums=False, quiet=True)
+
 except ImportError:
     import warnings
-    cython_installed = False
     warnings.warn('Cython not installed, using pre-generated C source file.')
-else:
-    cython_installed = True
-
-
-if cython_installed:
-    python_source = 'sophy.pyx'
-else:
-    python_source = 'sophy.c'
-    cythonize = lambda obj: obj
-
-library_source = 'src/sophia.c'
-
-sophy = Extension(
-    'sophy',
-    #extra_compile_args=['-g', '-O0'],
-    #extra_link_args=['-g'],
-    sources=[python_source, library_source])
+    extensions = [
+        Extension(
+            "sonya.sophia",
+            ["sonya/sophia.c", "sonya/src/sophia.c"],
+        ),
+    ]
 
 setup(
-    name='sophy',
+    name='sonya',
     version='0.3.6',
     description='Python bindings for the sophia database.',
+    long_description=open('README.rst').read(),
     author='Charles Leifer',
-    author_email='',
-    ext_modules=cythonize([sophy]),
+    author_email="coleifer@gmail.com",
+    maintainer='Dmitry Orlov',
+    maintainer_email='me@mosquito.su',
+    ext_modules=extensions,
+    packages=['sonya'],
+    classifiers=[
+        'License :: OSI Approved :: BSD License',
+        'Topic :: Software Development',
+        'Topic :: Software Development :: Libraries',
+        'Intended Audience :: Developers',
+        'Natural Language :: English',
+        'Operating System :: MacOS',
+        'Operating System :: POSIX',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: Implementation :: CPython',
+    ],
+    extras_require={
+        'develop': [
+            'Cython',
+            'pytest',
+        ],
+    },
 )

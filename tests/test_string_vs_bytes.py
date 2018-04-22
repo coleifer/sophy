@@ -1,6 +1,6 @@
 import pytest
 
-from sophy import Schema, BytesIndex, StringIndex
+from sonya import Schema, BytesIndex, StringIndex
 
 
 databases = (
@@ -14,17 +14,17 @@ databases = (
 
 
 @pytest.fixture()
-def env(sophy_env):
+def env(sonya_env):
     for name, schema in databases:
-        sophy_env.add_database(name, schema)
+        sonya_env.add_database(name, schema)
 
-    if not sophy_env.open():
+    if not sonya_env.open():
         raise RuntimeError('Unable to open Sophia environment.')
 
     try:
-        yield sophy_env
+        yield sonya_env
     finally:
-        sophy_env.close()
+        sonya_env.close()
 
 
 def test_string_encoding(env):

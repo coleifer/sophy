@@ -1,3 +1,6 @@
-sophy.c
-sophy*.so
+sophia.c
+sophia*.so
 MANIFEST
+*.pyc
+__pycache__
+/env*

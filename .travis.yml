@@ -1,10 +1,20 @@
 language: python
-python:
-  - "2.7"
-  - "3.5"
-  - "3.6"
-dist: trusty
-install: "pip install Cython backports.tempfile"
-before_script:
-  - python setup.py build_ext -i
-script: "pytest tests"
+
+matrix:
+  include:
+    - python: 2.7
+      env: TOXENV=py27
+
+    - python: 3.4
+      env: TOXENV=py34
+
+    - python: 3.5
+      env: TOXENV=py35
+
+    - python: 3.6
+      env: TOXENV=py36
+
+install:
+  - pip install tox
+script:
+  - tox

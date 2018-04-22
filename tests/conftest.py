@@ -8,7 +8,7 @@ try:
 except ImportError:
     from backports.tempfile import TemporaryDirectory
 
-from sophy import Sophia, Schema, BytesIndex, StringIndex
+from sonya import Sophia, Schema, BytesIndex, StringIndex
 
 
 if sys.version_info < (3,):
@@ -18,7 +18,7 @@ else:
 
 
 @pytest.fixture()
-def sophy_env():
+def sonya_env():
     with TemporaryDirectory() as env_path:
         env = Sophia(env_path)
 
@@ -29,26 +29,26 @@ def sophy_env():
 
 
 @pytest.fixture()
-def bytes_db(sophy_env):
-    db = sophy_env.add_database(
+def bytes_db(sonya_env):
+    db = sonya_env.add_database(
         uuid.uuid4().hex,
         Schema([BytesIndex('key')], [BytesIndex('value')])
     )
 
-    if not sophy_env.open():
+    if not sonya_env.open():
         raise RuntimeError('Unable to open Sophia environment.')
 
     return db
 
 
 @pytest.fixture()
-def string_db(sophy_env):
-    db = sophy_env.add_database(
+def string_db(sonya_env):
+    db = sonya_env.add_database(
         uuid.uuid4().hex,
         Schema([StringIndex('key')], [StringIndex('value')])
     )
 
-    if not sophy_env.open():
+    if not sonya_env.open():
         raise RuntimeError('Unable to open Sophia environment.')
 
     return db

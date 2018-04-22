@@ -3,11 +3,12 @@ from cpython.bytes cimport PyBytes_Check
 from cpython.unicode cimport PyUnicode_AsUTF8String
 from cpython.unicode cimport PyUnicode_Check
 from cpython.version cimport PY_MAJOR_VERSION
-from libc.stdint cimport int64_t
+
 from libc.stdint cimport uint8_t
 from libc.stdint cimport uint16_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
+from libc.stdint cimport int64_t
 
 
 cdef extern from "src/sophia.h":
@@ -39,6 +40,7 @@ cdef class Transaction(object)
 
 cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
+
 cdef inline bytes encode(obj):
     cdef bytes result
     if PyUnicode_Check(obj):
@@ -53,15 +55,19 @@ cdef inline bytes encode(obj):
         result = bytes(obj)
     return result
 
+
 cdef inline _getstring(void *obj, const char *key):
     cdef:
         char *buf
         int nlen
 
     buf = <char *>sp_getstring(obj, key, &nlen)
-    if buf:
-        value = buf[:nlen - 1]
-        return value
+    if not buf:
+        return
+
+    value = buf[:nlen - 1]
+    return value.decode()
+
 
 cdef inline _check(void *env, int rc):
     if rc == -1:
@@ -93,6 +99,7 @@ cdef class Configuration(object):
     def get_option(self, key, is_string=True):
         check_open(self.env)
         cdef bytes bkey = encode(key)
+
         if is_string:
             return _getstring(self.env.env, <const char *>bkey)
         else:
@@ -135,21 +142,28 @@ cdef class Configuration(object):
 
 def __config__(config_name, is_string=False, is_readonly=False):
     cdef bytes name = encode(config_name)
+
     def _getter(self):
         return self.config.get_option(name, is_string)
+
     if is_readonly:
         return property(_getter)
+
     def _setter(self, value):
         self.config.set_option(name, value)
+
     return property(_getter, _setter)
+
 
 def __config_ro__(name, is_string=False):
     return __config__(name, is_string, True)
+
 
 def __operation__(name):
     def _method(self):
         self.config.set_option(encode(name), 0)
     return _method
+
 
 def __dbconfig__(config_name, is_string=False, is_readonly=False):
     cdef bytes name = encode(config_name)
@@ -162,8 +176,10 @@ def __dbconfig__(config_name, is_string=False, is_readonly=False):
         self.env.config.set_option(b'.'.join((b'db', self.name, name)), value)
     return property(_getter, _setter)
 
+
 def __dbconfig_ro__(name, is_string=False):
     return __dbconfig__(name, is_string, True)
+
 
 def __dbconfig_s__(name, is_readonly=False):
     return __dbconfig__(name, True, is_readonly)

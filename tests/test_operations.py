@@ -1,5 +1,5 @@
 import pytest
-from sophy import SophiaError
+from sonya import SophiaError
 
 
 def test_crud(string_db):
@@ -101,30 +101,30 @@ def test_get_range(string_db):
     assert list(db['k2':'k1':True]) == [('k2', 'v2'), ('k1', 'v1')]
 
 
-def test_open_close(sophy_env, string_db):
+def test_open_close(sonya_env, string_db):
     db = string_db
     db['k1'] = 'v1'
     db['k2'] = 'v2'
-    assert sophy_env.close()
-    assert sophy_env.open()
+    assert sonya_env.close()
+    assert sonya_env.open()
 
-    assert not sophy_env.open()
+    assert not sonya_env.open()
 
     assert db['k1'] == 'v1'
     assert db['k2'] == 'v2'
     db['k2'] = 'v2-e'
 
-    assert sophy_env.close()
-    assert sophy_env.open()
+    assert sonya_env.close()
+    assert sonya_env.open()
     assert db['k2'] == 'v2-e'
 
 
-def test_transaction(sophy_env, string_db):
+def test_transaction(sonya_env, string_db):
     db = string_db
     db['k1'] = 'v1'
     db['k2'] = 'v2'
 
-    with sophy_env.transaction() as txn:
+    with sonya_env.transaction() as txn:
         txn_db = txn[db]
         assert txn_db['k1'] == 'v1'
         txn_db['k1'] = 'v1-e'
@@ -139,11 +139,11 @@ def test_transaction(sophy_env, string_db):
     assert db['k3'] == 'v3'
 
 
-def test_rollback(sophy_env, string_db):
+def test_rollback(sonya_env, string_db):
     db = string_db
     db['k1'] = 'v1'
     db['k2'] = 'v2'
-    with sophy_env.transaction() as txn:
+    with sonya_env.transaction() as txn:
         txn_db = txn[db]
         assert txn_db['k1'] == 'v1'
         txn_db['k1'] = 'v1-e'
@@ -156,17 +156,17 @@ def test_rollback(sophy_env, string_db):
     assert db['k3'] == 'v3'
 
 
-def test_multiple_transaction(sophy_env, string_db):
+def test_multiple_transaction(sonya_env, string_db):
     db = string_db
     db['k1'] = 'v1'
-    txn = sophy_env.transaction()
+    txn = sonya_env.transaction()
     txn.begin()
 
     txn_db = txn[db]
     txn_db['k2'] = 'v2'
     txn_db['k3'] = 'v3'
 
-    txn2 = sophy_env.transaction()
+    txn2 = sonya_env.transaction()
     txn2.begin()
 
     txn2_db = txn2[db]
@@ -181,17 +181,17 @@ def test_multiple_transaction(sophy_env, string_db):
     ]
 
 
-def test_transaction_conflict(sophy_env, string_db):
+def test_transaction_conflict(sonya_env, string_db):
     db = string_db
     db['k1'] = 'v1'
-    txn = sophy_env.transaction()
+    txn = sonya_env.transaction()
     txn.begin()
 
     txn_db = txn[db]
     txn_db['k2'] = 'v2'
     txn_db['k3'] = 'v3'
 
-    txn2 = sophy_env.transaction()
+    txn2 = sonya_env.transaction()
     txn2.begin()
 
     txn2_db = txn2[db]
@@ -211,7 +211,7 @@ def test_transaction_conflict(sophy_env, string_db):
     assert list(db) == [('k1', 'v1'), ('k2', 'v2'), ('k3', 'v3')]
 
 
-def test_cursor(sophy_env, string_db):
+def test_cursor(sonya_env, string_db):
     db = string_db
     db.update(k1='v1', k2='v2', k3='v3')
 

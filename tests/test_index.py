@@ -3,7 +3,7 @@ import pickle
 import uuid
 from itertools import product, permutations, chain
 
-from sophy import (
+from sonya import (
     Schema, StringIndex, BytesIndex, U64Index, U32Index, U16Index, U8Index,
     U64RevIndex, U32RevIndex, U16RevIndex, U8RevIndex,
 )
@@ -68,10 +68,10 @@ VALUE_TYPES = chain(VALUE_TYPES, permutations([
 
 
 @pytest.mark.parametrize("key_t,value_t", product(KEY_TYPES, VALUE_TYPES))
-def test_create_schema(key_t, value_t, sophy_env):
-    db = sophy_env.add_database(uuid.uuid4().hex, Schema(key_t, value_t))
+def test_create_schema(key_t, value_t, sonya_env):
+    db = sonya_env.add_database(uuid.uuid4().hex, Schema(key_t, value_t))
 
-    if not sophy_env.open():
+    if not sonya_env.open():
         raise Exception('Unable to open Sophia environment.')
 
     assert list(db.items()) == []
