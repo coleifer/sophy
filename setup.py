@@ -1,4 +1,8 @@
-from distutils.core import setup, Extension
+try:
+    from setuptools import setup, Extension
+except ImportError:
+    from distutils.core import setup, Extension
+
 
 try:
     from Cython.Build import cythonize
@@ -22,7 +26,7 @@ except ImportError:
 
 setup(
     name='sonya',
-    version='0.3.6',
+    version='0.4.0',
     description='Python bindings for the sophia database.',
     long_description=open('README.rst').read(),
     author='Charles Leifer',

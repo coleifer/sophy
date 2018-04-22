@@ -78,6 +78,7 @@ You can install from GitHub_ or from PyPi_.
 Pip instructions:
 
 .. code-block:: bash
+
     $ pip install Cython
     $ pip install sonya
 
@@ -85,6 +86,7 @@ Pip instructions:
 Or to install the latest code from master:
 
 .. code-block:: bash
+
     $ pip install -e git+https://github.com/mosquito/sonya#egg=sonya
 
 
@@ -102,6 +104,7 @@ Git instructions:
 To run the tests:
 
 .. code-block:: python
+
     $ pip install pytest
     $ pytest tests
 
@@ -398,6 +401,7 @@ To store data, we use the same dictionary methods as usual, just passing tuples
 instead of individual values:
 
 .. code-block:: python
+
     sophia_env.open()
 
     address_book['kitty', 'huey', 66604] = '123 Meow St'
@@ -407,12 +411,14 @@ instead of individual values:
 To retrieve our data:
 
 .. code-block:: python
+
     huey_address = address_book['kitty', 'huey', 66604]
 
 
 To delete a row:
 
 .. code-block:: python
+
     del address_book['puppy', 'mickey', 66604]
 
 
@@ -454,8 +460,10 @@ Database-specific properties are available as well. For example to get the
 number of GET and SET operations performed on a database, you would write:
 
 .. code-block:: python
-    print db.stat_get, 'get operations'
-    print db.stat_set, 'set operations'
+
+    print(db.stat_get, 'get operations')
+    print(db.stat_set, 'set operations')
+
 
 .. _documentation: http://sophia.systems/v2.2/conf/sophia.html
 
