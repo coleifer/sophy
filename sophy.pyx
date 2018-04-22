@@ -9,8 +9,6 @@ from libc.stdint cimport uint16_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
-from functools import wraps
-
 
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
