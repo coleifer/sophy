@@ -30,6 +30,8 @@ setup(
     maintainer='Dmitry Orlov',
     maintainer_email='me@mosquito.su',
     ext_modules=extensions,
+    license='BSD',
+    include_package_data=True,
     packages=['sonya'],
     classifiers=[
         'License :: OSI Approved :: BSD License',

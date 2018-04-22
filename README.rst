@@ -1,12 +1,3 @@
-.. image:: http://sophia.systems/logo.png
-   :target: http://sophia.systems/
-   :height: 95 px
-   :width: 215 px
-   :alt: Sophia Library
-
-Sonya
-=====
-
 .. image:: https://api.travis-ci.org/mosquito/sonya.svg?branch=master
    :target: https://travis-ci.org/mosquito/sonya
    :height: 95 px
@@ -15,6 +6,8 @@ Sonya
 
 .. _Sophia embedded database: http://sophia.systems/
 
+Sonya
+=====
 
 `sonya`, fast Python bindings for `Sophia embedded database`_, v2.2.
 
@@ -30,6 +23,11 @@ About sonya:
 
 About Sophia:
 +++++++++++++
+
+.. image:: http://sophia.systems/logo.png
+   :target: http://sophia.systems/
+   :alt: Sophia Library
+
 
 * Ordered key/value store
 * Keys and values can be composed of multiple fieldsdata-types
