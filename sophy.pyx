@@ -469,7 +469,7 @@ cdef class StringIndex(BaseIndex):
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
         return bvalue
 
-    cpdef object decode(self, bytes value):
+    cpdef object decode(self, str value):
         return value
 
     cdef get_key(self, void *obj):

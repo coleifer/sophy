@@ -440,9 +440,9 @@ from sophy import BytesIndex
 
 class PickleIndex(BytesIndex):
     def encode(self, obj):
-        return super().encode(pickle.dumps(obj))
+        return pickle.dumps(obj)
 
     def decode(self, value):
-        return super().decode(pickle.loads(value))
+        return pickle.loads(value)
 
 ```
