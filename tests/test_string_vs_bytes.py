@@ -38,7 +38,7 @@ def test_string_encoding(env):
     encoded = smartquotes.encode('utf-8')
 
     sdb[smartquotes] = smartquotes
-    assert sdb[encoded.decode()] == smartquotes
+    assert sdb[encoded] == smartquotes
 
     bdb[encoded] = encoded
     assert bdb[encoded] == encoded
