@@ -4,7 +4,7 @@ python:
   - "3.5"
   - "3.6"
 dist: trusty
-install: "pip install Cython"
+install: "pip install Cython backports.tempfile"
 before_script:
   - python setup.py build_ext -i
-script: "python tests.py"
+script: "pytest tests"
