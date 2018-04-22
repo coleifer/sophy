@@ -7,7 +7,7 @@ matrix:
     - python: 3.5
     - python: 3.6
 install:
-  - pip install cython
+  - pip install cython backports.tempfile
   - pip install -e '.[develop]'
 script:
   - pytest tests
