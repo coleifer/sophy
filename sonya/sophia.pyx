@@ -232,17 +232,33 @@ cdef class Sophia(object):
 
         self.set_string(b'db', db.name)
 
+        # Python 3.4 doesn't support format on bytes using join
         for i, index in enumerate(db.schema.key):
-            self.set_string(b'db.%s.scheme' % (db.name), index.name)
-            self.set_string(b'db.%s.scheme.%s' % (db.name, index.name),
-                            b'%s,key(%d)' % (index.data_type, i))
+            self.set_string(
+                b'.'.join((b'db', db.name, b'scheme')),
+                index.name
+            )
+
+            self.set_string(
+                b'.'.join((b'db', db.name, b'scheme', index.name)),
+                b','.join((
+                    index.data_type,
+                    b'key(' + str(i).encode() + b')'
+                ))
+            )
 
         for index in db.schema.value:
-            self.set_string(b'db.%s.scheme' % (db.name), index.name)
-            self.set_string(b'db.%s.scheme.%s' % (db.name, index.name),
-                            index.data_type)
+            self.set_string(
+                b'.'.join((b'db', db.name, b'scheme')),
+                index.name
+            )
 
-        db.db = sp_getobject(self.env, b'db.%s' % db.name)
+            self.set_string(
+                b'.'.join((b'db', db.name, b'scheme', index.name)),
+                index.data_type
+            )
+
+        db.db = sp_getobject(self.env, b'db.' + db.name)
 
     def open(self):
         if self.is_open:
