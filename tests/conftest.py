@@ -2,7 +2,11 @@ import sys
 import uuid
 
 import pytest
-from tempfile import TemporaryDirectory
+
+try:
+    from tempfile import TemporaryDirectory
+except ImportError:
+    from backports.tempfile import TemporaryDirectory
 
 from sophy import Sophia, Schema, BytesIndex, StringIndex
 
