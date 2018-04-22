@@ -416,23 +416,29 @@ cdef class BytesIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
 
+    cpdef bytes encode(self, object value):
+        if not PyBytes_Check(value):
+            if IS_PY3K:
+                return bytes(value, 'raw_unicode_escape')
+            else:
+                return bytes(value)
+        else:
+            return value
+
     cdef set_key(self, void *obj, value):
         cdef:
             bytes bvalue
             char *buf
             Py_ssize_t buflen
 
-        if not PyBytes_Check(value):
-            if IS_PY3K:
-                bvalue = bytes(value, 'raw_unicode_escape')
-            else:
-                bvalue = bytes(value)
-        else:
-            bvalue = value
+        bvalue = self.encode(value)
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
         return bvalue
+
+    cpdef object decode(self, bytes value):
+        return value
 
     cdef get_key(self, void *obj):
         cdef:
@@ -440,23 +446,33 @@ cdef class BytesIndex(BaseIndex):
             int buflen
 
         buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
-        if buf:
-            return buf[:buflen - 1]
+        if not buf:
+            return
+
+        return self.decode(buf[:buflen - 1])
 
 
 cdef class StringIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
 
+    cpdef str encode(self, value):
+        return value
+
     cdef set_key(self, void *obj, value):
         cdef:
-            bytes bvalue = encode(value)
+            bytes bvalue
             char *buf
             Py_ssize_t buflen
+
+        bvalue = encode(self.encode(value))
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
         sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
         return bvalue
+
+    cpdef object decode(self, bytes value):
+        return value
 
     cdef get_key(self, void *obj):
         cdef:
@@ -464,8 +480,10 @@ cdef class StringIndex(BaseIndex):
             int buflen
 
         buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
-        if buf:
-            return buf[:buflen - 1].decode('utf-8')
+        if not buf:
+            return
+
+        return self.decode(buf[:buflen - 1].decode('utf-8'))
 
 
 cdef class U64Index(BaseIndex):
