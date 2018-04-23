@@ -353,6 +353,7 @@ types:
 * `JsonIndex` - stores arbitrary objects as UTF8-encoded JSON data.
 * `MsgPackIndex` - stores arbitrary objects using `msgpack` serialization.
 * `PickleIndex` - stores arbitrary objects using Python `pickle` library.
+* `UUIDIndex` - stores UUIDs.
 * `U64Index` and reversed, `U64RevIndex`
 * `U32Index` and reversed, `U32RevIndex`
 * `U16Index` and reversed, `U16RevIndex`

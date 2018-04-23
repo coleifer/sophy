@@ -10,6 +10,7 @@ from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
 import json
+import uuid
 from pickle import dumps as pdumps
 from pickle import loads as ploads
 try:
@@ -583,6 +584,12 @@ cdef class MsgPackIndex(SerializedIndex):
 cdef class PickleIndex(SerializedIndex):
     def __init__(self, name):
         super(PickleIndex, self).__init__(name, pdumps, ploads)
+
+cdef class UUIDIndex(SerializedIndex):
+    def __init__(self, name):
+        uuid_encode = lambda u: u.bytes
+        uuid_decode = lambda b: uuid.UUID(bytes=b)
+        super(UUIDIndex, self).__init__(name, uuid_encode, uuid_decode)
 
 
 cdef class Document(object):

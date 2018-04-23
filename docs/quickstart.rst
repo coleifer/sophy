@@ -51,6 +51,7 @@ string data. The following index types are available:
 * :py:class:`JsonIndex` - store value as UTF8-encoded JSON.
 * :py:class:`MsgPackIndex` - store arbitrary data using msgpack encoding.
 * :py:class:`PickleIndex` - store arbitrary data using python pickle module.
+* :py:class:`UUIDIndex` - store UUIDs.
 * :py:class:`SerializedIndex` - index that accepts serialize/deserialize
   functions and can be used for msgpack or pickled data, for example.
 * :py:class:`U64Index` - store 64-bit unsigned integers.
@@ -306,6 +307,7 @@ types:
 * :py:class:`JsonIndex` - store value as UTF8-encoded JSON.
 * :py:class:`MsgPackIndex` - store arbitrary data using msgpack encoding.
 * :py:class:`PickleIndex` - store arbitrary data using python pickle module.
+* :py:class:`UUIDIndex` - store UUIDs.
 * :py:class:`SerializedIndex` - index that accepts serialize/deserialize
   functions and can be used for custom serialization formats.
 * :py:class:`U64Index` - store 64-bit unsigned integers.

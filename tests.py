@@ -3,6 +3,7 @@ import pickle
 import shutil
 import sys
 import unittest
+import uuid
 
 from sophy import *
 
@@ -606,6 +607,8 @@ class TestSerializedIndexImplementations(BaseTestCase):
          Schema(StringIndex('key'), JsonIndex('value'))),
         ('pickle',
          Schema(StringIndex('key'), PickleIndex('value'))),
+        ('uuid',
+         Schema(UUIDIndex('key'), StringIndex('value'))),
     )
 
     def setUp(self):
@@ -633,6 +636,19 @@ class TestSerializedIndexImplementations(BaseTestCase):
 
     def test_pickle(self):
         self._do_test(self.pdb)
+
+    def test_uuid(self):
+        u1 = uuid.uuid4()
+        u2 = uuid.uuid4()
+
+        db = self.env['uuid']
+        db[u1] = 'u1'
+        db[u2] = 'u2'
+        self.assertEqual(db[u1], 'u1')
+        self.assertEqual(db[u2], 'u2')
+
+        keys = list(db.keys())
+        self.assertEqual(set(keys), set((u1, u2)))
 
 
 if __name__ == '__main__':

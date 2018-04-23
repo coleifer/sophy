@@ -545,6 +545,11 @@ Schema Definition
     Store data using Python's pickle serialization format. Python objects will
     be transparently serialized and deserialized when writing and reading.
 
+.. py:class:: UUIDIndex(name)
+
+    Store UUIDs. Python ``uuid.UUID()`` objects will be stored as raw bytes and
+    decoded to ``uuid.UUID()`` instances upon retrieval.
+
 .. py:class:: U64Index(name)
 .. py:class:: U32Index(name)
 .. py:class:: U16Index(name)
