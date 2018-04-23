@@ -25,7 +25,7 @@ sophy = Extension(
 
 setup(
     name='sophy',
-    version='0.4.2',
+    version='0.4.3',
     description='Python bindings for the sophia database.',
     author='Charles Leifer',
     author_email='',
