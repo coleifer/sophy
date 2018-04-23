@@ -803,6 +803,15 @@ cdef class Database(object):
                 accum.append(None)
         return accum
 
+    def multi_get_dict(self, keys):
+        cdef dict accum = {}
+        for key in keys:
+            try:
+                accum[key] = self[key]
+            except KeyError:
+                pass
+        return accum
+
     def get_range(self, start=None, stop=None, reverse=False):
         cdef Cursor cursor
         first = start is None

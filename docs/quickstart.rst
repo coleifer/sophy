@@ -82,7 +82,8 @@ Sophy databases use the familiar ``dict`` APIs for CRUD operations:
 
 To insert multiple items efficiently, use the :py:meth:`Database.update`
 method. Multiple items can be retrieved or deleted efficiently using
-:py:meth:`Database.multi_get` and :py:meth:`Database.multi_delete`:
+:py:meth:`Database.multi_get`, :py:meth:`Database.multi_get_dict`, and
+:py:meth:`Database.multi_delete`:
 
 .. code-block:: pycon
 
@@ -93,6 +94,9 @@ method. Multiple items can be retrieved or deleted efficiently using
     v1
     v3
     None
+
+    >>> db.multi_get_dict(['k1', 'k3', 'kx'])
+    {'k1': 'v1', 'k3': 'v3'}
 
     >>> db.multi_delete('k1', 'k3', 'kx')
     >>> 'k1' in db

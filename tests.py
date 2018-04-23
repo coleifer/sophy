@@ -91,6 +91,8 @@ class TestBasicOperations(BaseTestCase):
             db['k%s' % i] = 'v%s' % i
 
         self.assertEqual(db.multi_get('k0', 'k3', 'k99'), ['v0', 'v3', None])
+        self.assertEqual(db.multi_get_dict(['k0', 'k3', 'k99']),
+                         {'k0': 'v0', 'k3': 'v3'})
 
         db.update(k0='v0-e', k3='v3-e', k99='v99-e')
         self.assertEqual(list(db), [('k0', 'v0-e'), ('k1', 'v1'), ('k2', 'v2'),
@@ -367,6 +369,10 @@ class TestMultiKeyValue(BaseTestCase):
             ('us', 'new years'),
             ('us', 'christmas'),
             ('private', 'huey')])
+        self.assertEqual(self.db.multi_get_dict(events), {
+            (2017, 1, 1, 'holiday'): ('us', 'new years'),
+            (2017, 12, 25, 'holiday'): ('us', 'christmas'),
+            (2017, 7, 1, 'birthday'): ('private', 'huey')})
 
     def test_ranges(self):
         self.db.update(dict(self.test_data))

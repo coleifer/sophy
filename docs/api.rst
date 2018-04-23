@@ -248,7 +248,7 @@ Database
 
     .. py:method:: multi_get(*keys)
 
-        :param keys: key(s) to delete
+        :param keys: key(s) to retrieve
         :return: a list of values associated with the given keys. If a key does
             not exist a ``None`` will be indicated for the value.
         :rtype: list
@@ -264,6 +264,24 @@ Database
             db.update(k1='v1', k2='v2', k3='v3')
             db.multi_get('k1', 'k3', 'k-nothere')
             # ['v1', 'v3', None]
+
+    .. py:method:: multi_get_dict(keys)
+
+        :param list keys: list of keys to get
+        :return: a list of values associated with the given keys. If a key does
+            not exist a ``None`` will be indicated for the value.
+        :rtype: list
+
+        Get multiple values efficiently. Returned as a dict of key/value pairs.
+        Missing values are not represented in the returned dict.
+
+        Example:
+
+        .. code-block:: python
+
+            db.update(k1='v1', k2='v2', k3='v3')
+            db.multi_get_dict(['k1', 'k3', 'k-nothere'])
+            # {'k1': 'v1', 'k3': 'v3'}
 
     .. py:method:: multi_delete(*keys)
 
