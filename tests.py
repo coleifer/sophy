@@ -534,6 +534,11 @@ class TestPickledIndex(BaseTestCase):
         self.assertTrue(self.db['k3'] is None)
         self.assertRaises(KeyError, lambda: self.db['k4'])
 
+        data = list(self.db['k1':'k2'])
+        self.assertEqual(data, [
+            ('k1', 'v1'),
+            ('k2', {'foo': 'bar', 'baz': 1})])
+
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv)

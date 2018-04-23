@@ -17,6 +17,33 @@ Environment
     Environment object providing access to databases and for controlling
     transactions.
 
+    Example of creating environment, attaching a database and reading/writing
+    data:
+
+    .. code-block:: python
+
+        from sophy import *
+
+
+        # Environment for managing one or more databases.
+        env = Sophia('/tmp/sophia-test')
+
+        # Schema describes the indexes that comprise the key and value portions
+        # of a database.
+        kv_schema = Schema([StringIndex('key')], [StringIndex('value')])
+        db = env.add_data('kv', kv_schema)
+
+        # We need to open the env after configuring the database(s), in order
+        # to read/write data.
+        assert env.open(), 'Failed to open environment!'
+
+        # We can use dict-style APIs to read/write key/value pairs.
+        db['k1'] = 'v1'
+        assert db['k1'] == 'v1'
+
+        # Close the env when finished.
+        assert env.close(), 'Failed to close environment!'
+
     .. py:method:: open()
 
         :return: Boolean indicating success.
@@ -38,20 +65,42 @@ Environment
         :rtype: :py:class:`Database`
 
         Add or declare a database. Environment must be closed to add databases.
+        The :py:class:`Schema` will declare the data-types and structure of the
+        key- and value-portion of the database.
+
+        .. code-block:: python
+
+            env = Sophia('/path/to/db-env')
+
+            # Declare an events database with a multi-part key (ts, type) and
+            # a msgpack-serialized data field.
+            events_schema = Schema(
+                key_parts=[U64Index('timestamp'), StringIndex('type')],
+                value_parts=[SerializedIndex('data', msgpack.packb, msgpack.unpackb)])
+            db = env.add_database('events', events_schema)
+
+            # Open the environment for read/write access to the database.
+            env.open()
+
+            # We can now write to the database.
+            db[current_time(), 'init'] = {'msg': 'event logging initialized'}
 
     .. py:method:: remove_database(name)
 
         :param str name: database name
 
         Remove a database from the environment. Environment must be closed to
-        remove databases.
+        remove databases. This method does really not have any practical value
+        but is provided for consistency.
 
     .. py:method:: get_database(name)
 
         :return: the database corresponding to the provided name
         :rtype: :py:class:`Database`
 
-        Obtain a reference to the given database.
+        Obtain a reference to the given database, provided the database has
+        been added to the environment by a previous call to
+        :py:meth:`~Sophia.add_database`.
 
     .. py:method:: __getitem__(name)
 
@@ -63,7 +112,26 @@ Environment
         :rtype: :py:class:`Transaction`
 
         Create a transaction handle which can be used to execute a transaction
-        on the databases in the environment.
+        on the databases in the environment. The returned transaction can be
+        used as a context-manager.
+
+        Example:
+
+        .. code-block:: python
+
+            env = Sophia('/tmp/sophia-test')
+            db = env.add_database('test', Schema.key_value())
+            env.open()
+
+            with env.transaction() as txn:
+                t_db = txn[db]
+                t_db['k1'] = 'v1'
+                t_db.update(k2='v2', k3='v3')
+
+            # Transaction has been committed.
+            print(db['k1'], db['k3'])  # prints "v1", "v3"
+
+        See :py:class:`Transaction` for more information.
 
 
 Database
@@ -101,6 +169,28 @@ Database
         scalar value may be provided as the key or value. If a composite or
         multi-index key or value is used, then a ``tuple`` must be provided.
 
+        Examples:
+
+        .. code-block:: python
+
+            simple = Schema(StringIndex('key'), StringIndex('value'))
+            simple_db = env.add_database('simple', simple)
+
+            composite = Schema(
+                [U64Index('timestamp'), StringIndex('type')],
+                [SerializedIndex('data', msgpack.packb, msgpack.unpackb)])
+            composite_db = env.add_database('composite', composite)
+
+            env.open()  # Open env to access databases.
+
+            # Set k1=v1 in the simple key/value database.
+            simple_db.set('k1', 'v1')
+
+            # Set new value in composite db. Note the key is a tuple and, since
+            # the value is serialized using msgpack, we can transparently store
+            # data-types like dicts.
+            composite_db.set((current_time, 'evt_type'), {'msg': 'foo'})
+
     .. py:method:: get(key[, default=None])
 
         :param key: key corresponding to schema (e.g. scalar or tuple).
@@ -110,12 +200,34 @@ Database
         Get the value at the given key. If the key does not exist, the default
         value is returned.
 
+        If a multi-part key is defined for the given database, the key must be
+        a tuple.
+
+        Example:
+
+        .. code-block:: python
+
+            simple_db.set('k1', 'v1')
+            simple_db.get('k1')  # Returns "v1".
+
+            simple_db.get('not-here')  # Returns None.
+
     .. py:method:: delete(key)
 
         :param key: key corresponding to schema (e.g. scalar or tuple).
         :return: No return value
 
-        Delete the given key, if it exists.
+        Delete the given key, if it exists. If a multi-part key is defined for
+        the given database, the key must be a tuple.
+
+        Example:
+
+        .. code-block:: python
+
+            simple_db.set('k1', 'v1')
+            simple_db.delete('k1')  # Deletes "k1" from database.
+
+            simple_db.exists('k1')  # False.
 
     .. py:method:: exists(key)
 
@@ -123,7 +235,8 @@ Database
         :return: Boolean indicating if key exists.
         :rtype: bool
 
-        Return whether the given key exists.
+        Return whether the given key exists. If a multi-part key is defined for
+        the given database, the key must be a tuple.
 
     .. py:method:: multi_set([__data=None[, **kwargs]])
 
@@ -140,7 +253,17 @@ Database
             not exist a ``None`` will be indicated for the value.
         :rtype: list
 
-        Get multiple values efficiently.
+        Get multiple values efficiently. Returned as a list of values
+        corresponding to the ``keys`` argument, with missing values as
+        ``None``.
+
+        Example:
+
+        .. code-block:: python
+
+            db.update(k1='v1', k2='v2', k3='v3')
+            db.multi_get('k1', 'k3', 'k-nothere')
+            # ['v1', 'v3', None]
 
     .. py:method:: multi_delete(*keys)
 
@@ -155,6 +278,9 @@ Database
         :param stop: stop key (omit to stop at the last record).
         :param bool reverse: return range in reverse.
         :return: a generator that yields the requested key/value pairs.
+
+        Fetch a range of key/value pairs from the given start-key, up-to and
+        including the stop-key (if given).
 
     .. py:method:: keys()
 
