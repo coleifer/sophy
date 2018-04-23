@@ -67,8 +67,8 @@ class TestBasicOperations(BaseTestCase):
         self.assertEqual(db.get('k2'), 'v2')
         self.assertTrue(db.get('k3') is None)
         self.assertEqual(db.get('k3', 'xx'), 'xx')
-        self.assertTrue(db.delete('k1'))
-        self.assertTrue(db.delete('k1'))
+        db.delete('k1')
+        self.assertTrue(db.get('k1') is None)
 
     def test_iterables(self):
         db = self.env['main']

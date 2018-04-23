@@ -206,6 +206,9 @@ cdef class Sophia(object):
         db = self.database_lookup.pop(name)
         self.databases.remove(db)
 
+    def get_database(self, name):
+        return self.database_lookup[name]
+
     def __getitem__(self, name):
         return self.database_lookup[name]
 
@@ -737,9 +740,8 @@ cdef class Database(object):
             void *handle = sp_document(self.db)
             Document doc = create_document(handle)
         self.schema.set_key(doc, key)
-        ret = sp_delete(self._get_target(), doc.handle) == 0
+        sp_delete(self._get_target(), doc.handle)
         doc.release_refs()
-        return ret
 
     def delete(self, key):
         check_open(self.env)
@@ -761,6 +763,10 @@ cdef class Database(object):
                 raise KeyError(key)
             return data if self.schema.multi_value else data[0]
 
+    def exists(self, key):
+        check_open(self.env)
+        return self._exists((key,) if not isinstance(key, tuple) else key)
+
     def __setitem__(self, key, value):
         self.set(key, value)
 
@@ -768,8 +774,7 @@ cdef class Database(object):
         self.delete(key)
 
     def __contains__(self, key):
-        check_open(self.env)
-        return self._exists((key,) if not isinstance(key, tuple) else key)
+        return self.exists(key)
 
     cdef _update(self, dict _data, dict k):
         cdef tuple tkey, tvalue
@@ -786,6 +791,8 @@ cdef class Database(object):
         check_open(self.env)
         with self.env.transaction() as txn:
             txn.get_database(self)._update(_data, kwargs)
+
+    multi_set = update
 
     def multi_get(self, *keys):
         cdef list accum = []
