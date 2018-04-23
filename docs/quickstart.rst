@@ -48,6 +48,9 @@ string data. The following index types are available:
 
 * :py:class:`StringIndex` - UTF8-encoded string data (text, in other words).
 * :py:class:`BytesIndex` - bytestrings (binary data).
+* :py:class:`JsonIndex` - store value as UTF8-encoded JSON.
+* :py:class:`MsgPackIndex` - store arbitrary data using msgpack encoding.
+* :py:class:`PickleIndex` - store arbitrary data using python pickle module.
 * :py:class:`SerializedIndex` - index that accepts serialize/deserialize
   functions and can be used for msgpack or pickled data, for example.
 * :py:class:`U64Index` - store 64-bit unsigned integers.
@@ -300,8 +303,11 @@ types:
 
 * :py:class:`StringIndex` - UTF8-encoded string data (text, in other words).
 * :py:class:`BytesIndex` - bytestrings (binary data).
+* :py:class:`JsonIndex` - store value as UTF8-encoded JSON.
+* :py:class:`MsgPackIndex` - store arbitrary data using msgpack encoding.
+* :py:class:`PickleIndex` - store arbitrary data using python pickle module.
 * :py:class:`SerializedIndex` - index that accepts serialize/deserialize
-  functions and can be used for msgpack or pickled data, for example.
+  functions and can be used for custom serialization formats.
 * :py:class:`U64Index` - store 64-bit unsigned integers.
 * :py:class:`U32Index` - store 32-bit unsigned integers.
 * :py:class:`U16Index` - store 16-bit unsigned integers.
@@ -310,12 +316,23 @@ types:
   :py:class:`U16RevIndex` and :py:class:`U8RevIndex` for storing integers in
   reverse order.
 
-To store arbitrary data encoded using msgpack, you could use `SerializedIndex`:
+To store arbitrary data encoded using msgpack, for example:
 
 .. code-block:: python
 
-    schema = Schema([StringIndex('key')],
-                    [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+    schema = Schema(StringIndex('key'), MsgPackIndex('value'))
+    db = sophia_env.add_database('main', schema)
+
+If you have a custom serialization library you would like to use, you can use
+:py:class:`SerializedIndex`, passing the serialize/deserialize callables:
+
+.. code-block:: python
+
+    # Equivalent to previous msgpack example.
+    import msgpack
+
+    schema = Schema(StringIndex('key'),
+                    SerializedIndex('value', msgpack.packb, msgpack.unpackb))
     db = sophia_env.add_database('main', schema)
 
 To declare a database with a multi-field key or value, you will pass the

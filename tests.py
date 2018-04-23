@@ -573,7 +573,7 @@ class TestStringVsBytes(BaseTestCase):
         self.assertEqual(self.bdb[b'\xff'], b'\xff')
 
 
-class TestPickledIndex(BaseTestCase):
+class TestSerializedIndex(BaseTestCase):
     databases = (
         ('main',
          Schema(StringIndex('key'),
@@ -581,7 +581,7 @@ class TestPickledIndex(BaseTestCase):
     )
 
     def setUp(self):
-        super(TestPickledIndex, self).setUp()
+        super(TestSerializedIndex, self).setUp()
         self.db = self.env['main']
 
     def test_serialize_deserialize(self):
@@ -598,6 +598,41 @@ class TestPickledIndex(BaseTestCase):
         self.assertEqual(data, [
             ('k1', 'v1'),
             ('k2', {'foo': 'bar', 'baz': 1})])
+
+
+class TestSerializedIndexImplementations(BaseTestCase):
+    databases = (
+        ('json',
+         Schema(StringIndex('key'), JsonIndex('value'))),
+        ('pickle',
+         Schema(StringIndex('key'), PickleIndex('value'))),
+    )
+
+    def setUp(self):
+        super(TestSerializedIndexImplementations, self).setUp()
+        self.jdb = self.env['json']
+        self.pdb = self.env['pickle']
+
+    def _do_test(self, db):
+        db['k1'] = 'v1'
+        db['k2'] = {'foo': 'bar', 'baz': 1}
+        db['k3'] = None
+
+        self.assertEqual(db['k1'], 'v1')
+        self.assertEqual(db['k2'], {'foo': 'bar', 'baz': 1})
+        self.assertTrue(db['k3'] is None)
+        self.assertRaises(KeyError, lambda: db['k4'])
+
+        data = list(db['k1':'k2'])
+        self.assertEqual(data, [
+            ('k1', 'v1'),
+            ('k2', {'foo': 'bar', 'baz': 1})])
+
+    def test_json(self):
+        self._do_test(self.jdb)
+
+    def test_pickle(self):
+        self._do_test(self.pdb)
 
 
 if __name__ == '__main__':

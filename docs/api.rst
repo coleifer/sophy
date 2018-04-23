@@ -76,7 +76,7 @@ Environment
             # a msgpack-serialized data field.
             events_schema = Schema(
                 key_parts=[U64Index('timestamp'), StringIndex('type')],
-                value_parts=[SerializedIndex('data', msgpack.packb, msgpack.unpackb)])
+                value_parts=[MsgPackIndex('data')])
             db = env.add_database('events', events_schema)
 
             # Open the environment for read/write access to the database.
@@ -148,9 +148,7 @@ Database
 
         env = Sophia('/path/to/data')
 
-        kv_schema = Schema(
-            [StringIndex('key')],
-            [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+        kv_schema = Schema(StringIndex('key'), MsgPackIndex('value'))
         kv_db = env.add_database('kv', kv_schema)
 
         # Another reference to "kv_db":
@@ -178,7 +176,7 @@ Database
 
             composite = Schema(
                 [U64Index('timestamp'), StringIndex('type')],
-                [SerializedIndex('data', msgpack.packb, msgpack.unpackb)])
+                [MsgPackIndex('data')])
             composite_db = env.add_database('composite', composite)
 
             env.open()  # Open env to access databases.
@@ -449,7 +447,7 @@ Schema Definition
         # along with msgpack-serialized data as the value.
         event_schema = Schema(
             [U64Index('timestamp'), StringIndex('type')],
-            [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+            [MsgPackIndex('value')])
 
     Schemas are used when adding databases using the
     :py:meth:`Sophia.add_database` method.
@@ -498,7 +496,7 @@ Schema Definition
     .. code-block:: python
 
         key = [U64Index('timestamp'), StringIndex('type')]
-        value = [SerializedIndex('value', msgpack.packb, msgpack.unpackb)]
+        value = [MsgPackIndex('value')]
         events = env.add_database('events', Schema(key, value))
 
 .. py:class:: SerializedIndex(name, serialize, deserialize)
@@ -518,6 +516,9 @@ Schema Definition
         value = SerializedIndex('value', pickle.dumps, pickle.loads)
         pickled_db = env.add_database('data', Schema([key], [value]))
 
+    **Note**: ``sophy`` already provides indexes for :py:class:`JsonIndex`,
+    :py:class:`MsgPackIndex` and :py:class:`PickleIndex`.
+
 .. py:class:: BytesIndex(name)
 
     Store arbitrary binary data in the database.
@@ -526,6 +527,23 @@ Schema Definition
 
     Store text data in the database as UTF8-encoded bytestrings. When reading
     from a :py:class:`StringIndex`, data is decoded and returned as unicode.
+
+.. py:class:: JsonIndex(name)
+
+    Store data as UTF8-encoded JSON. Python objects will be transparently
+    serialized and deserialized when writing and reading, respectively.
+
+.. py:class:: MsgPackIndex(name)
+
+    Store data using the msgpack serialization format. Python objects will
+    be transparently serialized and deserialized when writing and reading.
+
+    **Note**: Requires the ``msgpack-python`` library.
+
+.. py:class:: PickleIndex(name)
+
+    Store data using Python's pickle serialization format. Python objects will
+    be transparently serialized and deserialized when writing and reading.
 
 .. py:class:: U64Index(name)
 .. py:class:: U32Index(name)

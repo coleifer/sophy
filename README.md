@@ -350,6 +350,9 @@ types:
 
 * `StringIndex` - stores UTF8-encoded strings, e.g. text.
 * `BytesIndex` - stores bytestrings, e.g. binary data.
+* `JsonIndex` - stores arbitrary objects as UTF8-encoded JSON data.
+* `MsgPackIndex` - stores arbitrary objects using `msgpack` serialization.
+* `PickleIndex` - stores arbitrary objects using Python `pickle` library.
 * `U64Index` and reversed, `U64RevIndex`
 * `U32Index` and reversed, `U32RevIndex`
 * `U16Index` and reversed, `U16RevIndex`
@@ -358,12 +361,11 @@ types:
   functions: one for serializing the value to the db, and another for
   deserializing.
 
-To store arbitrary data encoded using msgpack, you could use `SerializedIndex`:
+To store arbitrary data encoded using msgpack, you could use `MsgPackIndex`:
 
 ```python
 
-schema = Schema([StringIndex('key')],
-                [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+schema = Schema(StringIndex('key'), MsgPackIndex('value'))
 db = sophia_env.add_database('main', schema)
 ```
 

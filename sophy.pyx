@@ -9,6 +9,15 @@ from libc.stdint cimport uint16_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
 
+import json
+from pickle import dumps as pdumps
+from pickle import loads as ploads
+try:
+    from msgpack import packb as mpackb
+    from msgpack import unpackb as munpackb
+except ImportError:
+    mpackb = munpackb = None
+
 
 cdef extern from "src/sophia.h":
     cdef void *sp_env()
@@ -557,6 +566,23 @@ cdef class U16RevIndex(U16Index):
 
 cdef class U8RevIndex(U8Index):
     data_type = SCHEMA_U8_REV
+
+
+cdef class JsonIndex(SerializedIndex):
+    def __init__(self, name):
+        jdumps = lambda v: json.dumps(v, separators=(',', ':')).encode('utf-8')
+        jloads = lambda v: json.loads(v.decode('utf-8'))
+        super(JsonIndex, self).__init__(name, jdumps, jloads)
+
+cdef class MsgPackIndex(SerializedIndex):
+    def __init__(self, name):
+        if mpackb is None or munpackb is None:
+            raise SophiaError('msgpack-python library not installed!')
+        super(MsgPackIndex, self).__init__(name, mpackb, munpackb)
+
+cdef class PickleIndex(SerializedIndex):
+    def __init__(self, name):
+        super(PickleIndex, self).__init__(name, pdumps, ploads)
 
 
 cdef class Document(object):
