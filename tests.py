@@ -415,6 +415,60 @@ class TestMultiKeyValue(BaseTestCase):
         self.assertEqual(nums[1], (0, 0, 0, 0, 255))
 
 
+class TestEventSchema(BaseTestCase):
+    databases = (
+        ('main',
+         Schema([U64Index('timestamp'), StringIndex('type')],
+                [SerializedIndex('data', pickle.dumps, pickle.loads)])),
+    )
+
+    def setUp(self):
+        super(TestEventSchema, self).setUp()
+        self.db = self.env['main']
+
+    def test_events_examples(self):
+        ts = lambda i: 1000000000 + i
+
+        self.db[ts(1), 'init'] = {'msg': 'starting up'}
+        self.db[ts(2), 'info'] = {'msg': 'info1'}
+        self.db[ts(3), 'info'] = {'msg': 'info2'}
+        self.db[ts(3), 'warning'] = {'msg': 'warn1'}
+        self.db[ts(4), 'info'] = {'msg': 'info3'}
+        self.db[ts(4), 'error'] = {'msg': 'error1'}
+
+        self.assertEqual(self.db[ts(3), 'info'], {'msg': 'info2'})
+        self.assertEqual(self.db[ts(4), 'info'], {'msg': 'info3'})
+        self.assertRaises(KeyError, lambda: self.db[ts(4), 'xx'])
+
+        start = (ts(1), '')
+        stop = (ts(3), '')
+        data = self.db.get_range(start=start, stop=stop)
+        self.assertEqual(list(data), [
+            ((ts(1), 'init'), {'msg': 'starting up'}),
+            ((ts(2), 'info'), {'msg': 'info1'}),
+        ])
+
+        stop = (ts(4), 'f')
+        data = self.db.get_range(start=start, stop=stop, reverse=True)
+        self.assertEqual(list(data), [
+            ((ts(4), 'error'), {'msg': 'error1'}),
+            ((ts(3), 'warning'), {'msg': 'warn1'}),
+            ((ts(3), 'info'), {'msg': 'info2'}),
+            ((ts(2), 'info'), {'msg': 'info1'}),
+            ((ts(1), 'init'), {'msg': 'starting up'}),
+        ])
+
+        curs = self.db.cursor(order='<', key=(ts(3), 'info'), values=False)
+        self.assertEqual(list(curs), [(ts(2), 'info'), (ts(1), 'init')])
+
+        curs = self.db.cursor(order='>=', key=(ts(3), 'info'), values=False)
+        self.assertEqual(list(curs), [
+            (ts(3), 'info'),
+            (ts(3), 'warning'),
+            (ts(4), 'error'),
+            (ts(4), 'info')])
+
+
 class TestMultiKeyValue(BaseTestCase):
     databases = (
         ('main',
