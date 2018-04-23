@@ -5,7 +5,7 @@
 
 <a href="https://travis-ci.org/coleifer/sophy"><img src="https://api.travis-ci.org/coleifer/sophy.svg?branch=master" /></a>
 
-#### About sophy:
+#### About sophy
 
 * Written in Cython for speed and low-overhead
 * Clean, memorable APIs
@@ -14,7 +14,7 @@
 * No 3rd-party dependencies besides Cython
 * [Documentation on readthedocs](http://sophy.readthedocs.io/en/latest/)
 
-#### About Sophia:
+#### About Sophia
 
 * Ordered key/value store
 * Keys and values can be composed of multiple fieldsdata-types
@@ -31,7 +31,7 @@
 * APIs for variety of statistics on storage engine internals
 * BSD licensed
 
-#### Some ideas of where Sophia might be a good fit:
+#### Some ideas of where Sophia might be a good fit
 
 * Running on application servers, low-latency / high-throughput
 * Time-series
@@ -39,7 +39,7 @@
 * Full-text search
 * Secondary-index for external data-store
 
-#### Limitations:
+#### Limitations
 
 * Not tested on Windoze.
 
@@ -154,6 +154,9 @@ for value in db.multi_get('k1', 'k3', 'kx'):
 # v1
 # v3
 # None
+
+result_dict = db.multi_get_dict(['k1', 'k3', 'kx'])
+# {'k1': 'v1', 'k3': 'v3'}
 ```
 
 ### Other dictionary methods
@@ -191,10 +194,10 @@ not-yet-merged duplicates.
 
 ```python
 
-print len(db)
+print(len(db))
 # 4
 
-print db.index_count
+print(db.index_count)
 # 4
 ```
 
