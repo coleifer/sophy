@@ -7,6 +7,9 @@ Sophy API
 
     General exception class used to indicate error returned by Sophia database.
 
+Environment
+-----------
+
 .. py:class:: Sophia(path)
 
     :param str path: Directory path to store environment and databases.
@@ -63,178 +66,8 @@ Sophy API
         on the databases in the environment.
 
 
-.. py:class:: Transaction()
-
-    Transaction handle, used for executing one or more operations atomically.
-    This class is not created directly - use :py:meth:`Sophia.transaction`.
-
-    The transaction can be used as a context-manager. To read or write during a
-    transaction, you should obtain a transaction-specific handle to the
-    database you are operating on.
-
-    Example::
-
-    .. code-block:: python
-
-        env = Sophia('/tmp/my-env')
-        db = env.add_database('kv', Schema.key_value())
-        env.open()
-
-        with env.transaction() as txn:
-            tdb = txn[db]  # Obtain reference to "db" in the transaction.
-            tdb['k1'] = 'v1'
-            tdb.update(k2='v2', k3='v3')
-
-        # At the end of the wrapped block, the transaction is committed.
-        # The writes have been recorded:
-        print(db['k1'], db['k3'])
-        # ('v1', 'v3')
-
-    .. py:method:: begin()
-
-        Begin a transaction.
-
-    .. py:method:: commit()
-
-        :raises: SophiaError
-
-        Commit all changes. An exception can occur if:
-
-        1. The transaction was rolled back, either explicitly or implicitly due
-           to conflicting changes having been committed by a different
-           transaction. **Not recoverable**.
-        2. A concurrent transaction is open and must be committed before this
-           transaction can commit.  **Possibly recoverable**.
-
-    .. py:method:: rollback()
-
-        Roll-back any changes made in the transaction.
-
-    .. py:method:: __getitem__(db)
-
-        :param Database db: database to reference during transaction
-        :return: special database-handle for use in transaction
-        :rtype: :py:class:`DatabaseTransaction`
-
-        Obtain a reference to the database for use within the transaction. This
-        object supports the same APIs as :py:class:`Database`, but any reads or
-        writes will be made within the context of the transaction.
-
-
-.. py:class:: BaseIndex(name)
-
-    :param str name: Name for the key- or value-part the index represents.
-
-    Indexes are used to define the key and value portions of a
-    :py:class:`Schema`. Traditional key/value databases typically only
-    supported a single-value, single-datatype key and value (usually bytes).
-    Sophia is different in that keys or values can be comprised of multiple
-    parts with differing data-types.
-
-    For example, to emulate a typical key/value store:
-
-    .. code-block:: python
-
-        schema = Schema([BytesIndex('key')], [BytesIndex('value')])
-        db = env.add_database('old_school', schema)
-
-    Suppose we are storing time-series event logs. We could use a 64-bit
-    integer for the timestamp (in micro-seconds) as well as a key to denote
-    the event-type. The value could be arbitrary msgpack-encoded data:
-
-    .. code-block:: python
-
-        key = [U64Index('timestamp'), StringIndex('type')]
-        value = [SerializedIndex('value', msgpack.packb, msgpack.unpackb)]
-        events = env.add_database('events', Schema(key, value))
-
-.. py:class:: SerializedIndex(name, serialize, deserialize)
-
-    :param str name: Name for the key- or value-part the index represents.
-    :param serialize: a callable that accepts data and returns bytes.
-    :param deserialize: a callable that accepts bytes and deserializes the data.
-
-    The :py:class:`SerializedIndex` can be used to transparently store data as
-    bytestrings. For example, you could use a library like ``msgpack`` or
-    ``pickle`` to transparently store and retrieve Python objects in the
-    database:
-
-    .. code-block:: python
-
-        key = StringIndex('key')
-        value = SerializedIndex('value', pickle.dumps, pickle.loads)
-        pickled_db = env.add_database('data', Schema([key], [value]))
-
-.. py:class:: BytesIndex(name)
-
-    Store arbitrary binary data in the database.
-
-.. py:class:: StringIndex(name)
-
-    Store text data in the database as UTF8-encoded bytestrings. When reading
-    from a :py:class:`StringIndex`, data is decoded and returned as unicode.
-
-.. py:class:: U64Index(name)
-.. py:class:: U32Index(name)
-.. py:class:: U16Index(name)
-.. py:class:: U8Index(name)
-
-    Store unsigned integers of the given sizes.
-
-.. py:class:: U64RevIndex(name)
-.. py:class:: U32RevIndex(name)
-.. py:class:: U16RevIndex(name)
-.. py:class:: U8RevIndex(name)
-
-    Store unsigned integers of the given sizes in reverse order.
-
-
-.. py:class:: Schema(key_parts, value_parts)
-
-    :param list key_parts: a list of ``Index`` objects (or a single index
-        object) to use as the key of the database.
-    :param list value_parts: a list of ``Index`` objects (or a single index
-        object) to use for the values stored in the database.
-
-    The schema defines the structure of the keys and values for a given
-    :py:class:`Database`. They can be comprised of a single index-type or
-    multiple indexes for composite keys or values.
-
-    Example:
-
-    .. code-block:: python
-
-        # Simple schema defining text keys and values.
-        simple = Schema(StringIndex('key'), StringIndex('value'))
-
-        # Schema with composite key for storing timestamps and event-types,
-        # along with msgpack-serialized data as the value.
-        event_schema = Schema(
-            [U64Index('timestamp'), StringIndex('type')],
-            [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
-
-    Schemas are used when adding databases using the
-    :py:meth:`Sophia.add_database` method.
-
-    .. py:method:: add_key(index)
-
-        :param BaseIndex index: an index object to add to the key parts.
-
-        Add an index to the key. Allows :py:class:`Schema` to be built-up
-        programmatically.
-
-    .. py:method:: add_value(index)
-
-        :param BaseIndex index: an index object to add to the value parts.
-
-        Add an index to the value. Allows :py:class:`Schema` to be built-up
-        programmatically.
-
-    .. py:classmethod:: key_value()
-
-        Short-hand for creating a simple text schema consisting of a single
-        :py:class:`StringIndex` for both the key and the value.
-
+Database
+--------
 
 .. py:class:: Database()
 
@@ -385,6 +218,188 @@ Sophy API
         cursor to yield a 2-tuple consisting of ``(key, value)`` during
         iteration.
 
+
+Transaction
+-----------
+
+.. py:class:: Transaction()
+
+    Transaction handle, used for executing one or more operations atomically.
+    This class is not created directly - use :py:meth:`Sophia.transaction`.
+
+    The transaction can be used as a context-manager. To read or write during a
+    transaction, you should obtain a transaction-specific handle to the
+    database you are operating on.
+
+    Example:
+
+    .. code-block:: python
+
+        env = Sophia('/tmp/my-env')
+        db = env.add_database('kv', Schema.key_value())
+        env.open()
+
+        with env.transaction() as txn:
+            tdb = txn[db]  # Obtain reference to "db" in the transaction.
+            tdb['k1'] = 'v1'
+            tdb.update(k2='v2', k3='v3')
+
+        # At the end of the wrapped block, the transaction is committed.
+        # The writes have been recorded:
+        print(db['k1'], db['k3'])
+        # ('v1', 'v3')
+
+    .. py:method:: begin()
+
+        Begin a transaction.
+
+    .. py:method:: commit()
+
+        :raises: SophiaError
+
+        Commit all changes. An exception can occur if:
+
+        1. The transaction was rolled back, either explicitly or implicitly due
+           to conflicting changes having been committed by a different
+           transaction. **Not recoverable**.
+        2. A concurrent transaction is open and must be committed before this
+           transaction can commit.  **Possibly recoverable**.
+
+    .. py:method:: rollback()
+
+        Roll-back any changes made in the transaction.
+
+    .. py:method:: __getitem__(db)
+
+        :param Database db: database to reference during transaction
+        :return: special database-handle for use in transaction
+        :rtype: :py:class:`DatabaseTransaction`
+
+        Obtain a reference to the database for use within the transaction. This
+        object supports the same APIs as :py:class:`Database`, but any reads or
+        writes will be made within the context of the transaction.
+
+
+Schema Definition
+-----------------
+
+.. py:class:: Schema(key_parts, value_parts)
+
+    :param list key_parts: a list of ``Index`` objects (or a single index
+        object) to use as the key of the database.
+    :param list value_parts: a list of ``Index`` objects (or a single index
+        object) to use for the values stored in the database.
+
+    The schema defines the structure of the keys and values for a given
+    :py:class:`Database`. They can be comprised of a single index-type or
+    multiple indexes for composite keys or values.
+
+    Example:
+
+    .. code-block:: python
+
+        # Simple schema defining text keys and values.
+        simple = Schema(StringIndex('key'), StringIndex('value'))
+
+        # Schema with composite key for storing timestamps and event-types,
+        # along with msgpack-serialized data as the value.
+        event_schema = Schema(
+            [U64Index('timestamp'), StringIndex('type')],
+            [SerializedIndex('value', msgpack.packb, msgpack.unpackb)])
+
+    Schemas are used when adding databases using the
+    :py:meth:`Sophia.add_database` method.
+
+    .. py:method:: add_key(index)
+
+        :param BaseIndex index: an index object to add to the key parts.
+
+        Add an index to the key. Allows :py:class:`Schema` to be built-up
+        programmatically.
+
+    .. py:method:: add_value(index)
+
+        :param BaseIndex index: an index object to add to the value parts.
+
+        Add an index to the value. Allows :py:class:`Schema` to be built-up
+        programmatically.
+
+    .. py:classmethod:: key_value()
+
+        Short-hand for creating a simple text schema consisting of a single
+        :py:class:`StringIndex` for both the key and the value.
+
+
+.. py:class:: BaseIndex(name)
+
+    :param str name: Name for the key- or value-part the index represents.
+
+    Indexes are used to define the key and value portions of a
+    :py:class:`Schema`. Traditional key/value databases typically only
+    supported a single-value, single-datatype key and value (usually bytes).
+    Sophia is different in that keys or values can be comprised of multiple
+    parts with differing data-types.
+
+    For example, to emulate a typical key/value store:
+
+    .. code-block:: python
+
+        schema = Schema([BytesIndex('key')], [BytesIndex('value')])
+        db = env.add_database('old_school', schema)
+
+    Suppose we are storing time-series event logs. We could use a 64-bit
+    integer for the timestamp (in micro-seconds) as well as a key to denote
+    the event-type. The value could be arbitrary msgpack-encoded data:
+
+    .. code-block:: python
+
+        key = [U64Index('timestamp'), StringIndex('type')]
+        value = [SerializedIndex('value', msgpack.packb, msgpack.unpackb)]
+        events = env.add_database('events', Schema(key, value))
+
+.. py:class:: SerializedIndex(name, serialize, deserialize)
+
+    :param str name: Name for the key- or value-part the index represents.
+    :param serialize: a callable that accepts data and returns bytes.
+    :param deserialize: a callable that accepts bytes and deserializes the data.
+
+    The :py:class:`SerializedIndex` can be used to transparently store data as
+    bytestrings. For example, you could use a library like ``msgpack`` or
+    ``pickle`` to transparently store and retrieve Python objects in the
+    database:
+
+    .. code-block:: python
+
+        key = StringIndex('key')
+        value = SerializedIndex('value', pickle.dumps, pickle.loads)
+        pickled_db = env.add_database('data', Schema([key], [value]))
+
+.. py:class:: BytesIndex(name)
+
+    Store arbitrary binary data in the database.
+
+.. py:class:: StringIndex(name)
+
+    Store text data in the database as UTF8-encoded bytestrings. When reading
+    from a :py:class:`StringIndex`, data is decoded and returned as unicode.
+
+.. py:class:: U64Index(name)
+.. py:class:: U32Index(name)
+.. py:class:: U16Index(name)
+.. py:class:: U8Index(name)
+
+    Store unsigned integers of the given sizes.
+
+.. py:class:: U64RevIndex(name)
+.. py:class:: U32RevIndex(name)
+.. py:class:: U16RevIndex(name)
+.. py:class:: U8RevIndex(name)
+
+    Store unsigned integers of the given sizes in reverse order.
+
+
+Cursor
+------
 
 .. py:class:: Cursor()
 
