@@ -600,44 +600,44 @@ status                          string, ro    Get environment status (eg online)
 errors                          int, ro       Get number of errors
 **error**                       string, ro    Get last error description
 path                            string, ro    Get current Sophia environment directory
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 Backups
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 **backup_path**                 string        Set backup path
 **backup_run**                  method        Start backup in background (non-blocking)
 backup_active                   int, ro       Show if backup is running
 backup_last                     int, ro       Show ID of last-completed backup
 backup_last_complete            int, ro       Show if last backup succeeded
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 Scheduler
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 scheduler_threads               int           Get or set number of worker threads
 scheduler_trace(thread_id)      method        Get a worker trace for given thread
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 Transaction Manager
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 transaction_online_rw           int, ro       Number of active read/write transactions
 transaction_online_ro           int, ro       Number of active read-only transactions
 transaction_commit              int, ro       Total number of completed transactions
 transaction_rollback            int, ro       Total number of transaction rollbacks
 transaction_conflict            int, ro       Total number of transaction conflicts
 transaction_lock                int, ro       Total number of transaction locks
-transaction_latency             string, ro    Average transaction latency from begin to commit
+transaction_latency             string, ro    Average transaction completion latency
 transaction_log                 string, ro    Average transaction log length
 transaction_vlsn                int, ro       Current VLSN
 transaction_gc                  int, ro       SSI GC queue size
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 Metrics
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 metric_lsn                      int, ro       Current log sequential number
 metric_tsn                      int, ro       Current transaction sequential number
 metric_nsn                      int, ro       Current node sequential number
 metric_dsn                      int, ro       Current database sequential number
 metric_bsn                      int, ro       Current backup sequential number
 metric_lfsn                     int, ro       Current log file sequential number
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 Write-ahead Log
-------------------------------- ------------- -----------------------------------------------
+---------------------------------------------------------------------------------------------
 log_enable                      int           Enable or disable transaction log
 log_path                        string        Get or set folder for log directory
 log_sync                        int           Sync transaction log on every commit
@@ -669,9 +669,9 @@ expire                          int           Enable or disable key expiration
 **compression**                 string        Specify compression type: lz4, zstd, none (default)
 limit_key                       int, ro       Scheme key size limit
 limit_field                     int           Scheme field size limit
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 Index
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 index_memory_used               int, ro       Memory used by database for in-memory key indexes
 index_size                      int, ro       Sum of nodes size in bytes (e.g. database size)
 index_size_uncompressed         int, ro       Full database size before compression
@@ -681,9 +681,9 @@ index_read_disk                 int, ro       Number of disk reads since start
 index_read_cache                int, ro       Number of cache reads since start
 index_node_count                int, ro       Number of active nodes
 index_page_count                int, ro       Total number of pages
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 Compaction
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 **compaction_cache**            int           Total write cache size used for compaction
 compaction_checkpoint           int
 compaction_node_size            int           Set a node file size in bytes.
@@ -692,9 +692,9 @@ compaction_page_checksum        int           Validate checksum during compactio
 compaction_expire_period        int           Run expire check process every ``N`` seconds
 compaction_gc_wm                int           GC starts when watermark value reaches ``N`` dupes
 compaction_gc_period            int           Check for a gc every ``N`` seconds
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 Performance
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 stat_documents_used             int, ro       Memory used by allocated document
 stat_documents                  int, ro       Number of currently allocated documents
 stat_field                      string, ro    Average field size
@@ -713,9 +713,9 @@ stat_cursor_latency             string, ro    Average cursor latency
 stat_cursor_read_disk           string, ro    Average disk reads by Cursor operation
 stat_cursor_read_cache          string, ro    Average cache reads by Cursor operation
 stat_cursor_ops                 string, io    Average number of keys read by Cursor operation
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 Scheduler
-------------------------------- ------------- ---------------------------------------------------
+-------------------------------------------------------------------------------------------------
 scheduler_gc                    int, ro       Show if GC operation is in progress
 scheduler_expire                int, ro       Show if expire operation is in progress
 scheduler_backup                int, ro       Show if backup operation is in progress
