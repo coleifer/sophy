@@ -647,7 +647,6 @@ log_rotate                      method        Force Sophia to rotate log file
 log_gc                          method        Force Sophia to garbage-collect log file pool
 log_files                       int, ro       Number of log files in the pool
 =============================== ============= ================================================
-=============================== ============= ================================================
 
 Database settings
 ^^^^^^^^^^^^^^^^^
