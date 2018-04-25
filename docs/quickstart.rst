@@ -424,3 +424,34 @@ complete lists of settings. Dotted-paths are translated into
 underscore-separated attributes.
 
 You can also refer to Sophy's :ref:`API documentation <api>`_.
+
+Backups
+-------
+
+Sophia can create a backup the database while it is running. To configure
+backups, you will need to set the path for backups before opening the
+environment:
+
+.. code-block:: python
+
+    env = Sophia('/path/to/data')
+    env.backup_path = '/path/for/backup-data/'
+
+    env.open()
+
+At any time while the environment is open, you can call the ``backup_run()``
+method, and a backup will be started in a background thread:
+
+.. code-block:: python
+
+    env.backup_run()
+
+Backups will be placed in numbered folders inside the ``backup_path`` specified
+during environment configuration. You can query the backup status and get the
+ID of the last-completed backup:
+
+.. code-block:: python
+
+    env.backup_active  # Returns 1 if running, 0 if completed/idle
+    env.backup_last  # Get ID of last-completed backup
+    env.backup_last_complete  # Returns 1 if last backup succeeded
