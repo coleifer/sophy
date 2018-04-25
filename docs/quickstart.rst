@@ -388,7 +388,7 @@ Configuring and Administering Sophia
 ------------------------------------
 
 Sophia can be configured using special properties on the :py:class:`Sophia` and
-:py:class:`Database` objects. Refer to the `configuration document <http://sophia.systems/v2.2/conf/sophia.html>`_
+:py:class:`Database` objects. Refer to the :ref:`settings configuration document <settings>`
 for the details on the available options, including whether they are read-only,
 and the expected data-type.
 
@@ -419,11 +419,8 @@ number of GET and SET operations performed on a database, you would write:
     >>> print(db.stat_set, 'set operations')
     33 set operations
 
-Refer to the `documentation <http://sophia.systems/v2.2/conf/sophia.html>`_ for
-complete lists of settings. Dotted-paths are translated into
-underscore-separated attributes.
-
-You can also refer to Sophy's :ref:`API documentation <api>`_.
+Refer to the :ref:`settings configuration table <settings>` for a complete
+list of available settings.
 
 Backups
 -------

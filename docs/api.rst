@@ -578,6 +578,7 @@ Cursor
     Cursors are iterable and, depending how they were configured, can return
     keys, values or key/value pairs.
 
+.. _settings:
 
 Settings
 --------
