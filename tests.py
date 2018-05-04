@@ -60,7 +60,7 @@ class TestBasicOperations(BaseTestCase):
         db['huey'] = 'kitten'
         self.assertEqual(db['huey'], 'kitten')
         db.delete('huey')
-        self.assertEqual(db.multi_get('huey'), [None])
+        self.assertEqual(db.multi_get(['huey']), [None])
 
         db.set('k1', 'v1')
         db.set('k2', 'v2')
@@ -91,7 +91,7 @@ class TestBasicOperations(BaseTestCase):
         for i in range(4):
             db['k%s' % i] = 'v%s' % i
 
-        self.assertEqual(db.multi_get('k0', 'k3', 'k99'), ['v0', 'v3', None])
+        self.assertEqual(db.multi_get(['k0', 'k3', 'k99']), ['v0', 'v3', None])
         self.assertEqual(db.multi_get_dict(['k0', 'k3', 'k99']),
                          {'k0': 'v0', 'k3': 'v3'})
 
@@ -366,7 +366,7 @@ class TestMultiKeyValue(BaseTestCase):
         events = ((2017, 1, 1, 'holiday'),
                   (2017, 12, 25, 'holiday'),
                   (2017, 7, 1, 'birthday'))
-        self.assertEqual(self.db.multi_get(*events), [
+        self.assertEqual(self.db.multi_get(events), [
             ('us', 'new years'),
             ('us', 'christmas'),
             ('private', 'huey')])

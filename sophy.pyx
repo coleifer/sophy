@@ -780,7 +780,7 @@ cdef class Database(object):
         check_open(self.env)
         return self._delete((key,) if not isinstance(key, tuple) else key)
 
-    def multi_delete(self, *keys):
+    def multi_delete(self, keys):
         check_open(self.env)
         for key in keys:
             self._delete((key,) if not isinstance(key, tuple) else key)
@@ -827,7 +827,7 @@ cdef class Database(object):
 
     multi_set = update
 
-    def multi_get(self, *keys):
+    def multi_get(self, keys):
         cdef list accum = []
         for key in keys:
             try:
