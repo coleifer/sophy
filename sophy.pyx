@@ -20,7 +20,7 @@ except ImportError:
     mpackb = munpackb = None
 
 
-cdef extern from "src/sophia.h":
+cdef extern from "src/sophia.h" nogil:
     cdef void *sp_env()
     cdef void *sp_document(void *)
     cdef int sp_setstring(void*, const char*, const void*, int)
@@ -258,7 +258,9 @@ cdef class Sophia(object):
 
         self.config.configure()
 
-        cdef int rc = sp_open(self.env)
+        cdef int rc
+        with nogil:
+            rc = sp_open(self.env)
         _check(self.env, rc)
 
         self.is_open = True
@@ -349,7 +351,8 @@ cdef class Transaction(object):
         check_open(self.env)
         if self.txn:
             raise SophiaError('This transaction has already been started.')
-        self.txn = sp_begin(self.env.env)
+        with nogil:
+            self.txn = sp_begin(self.env.env)
         return self
 
     def commit(self, begin=True):
@@ -358,7 +361,9 @@ cdef class Transaction(object):
             raise SophiaError('Transaction is not currently open. Cannot '
                               'commit.')
 
-        cdef int rc = sp_commit(self.txn)
+        cdef int rc
+        with nogil:
+            rc = sp_commit(self.txn)
         if rc == 1:
             self.txn = <void *>0
             raise SophiaError('transaction was rolled back by another '
@@ -374,7 +379,8 @@ cdef class Transaction(object):
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '
                               'rollback.')
-        sp_destroy(self.txn)
+        with nogil:
+            sp_destroy(self.txn)
         self._reset(begin)
 
     def __enter__(self):
