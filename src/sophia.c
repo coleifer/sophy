@@ -10,8 +10,8 @@
 /* amalgamation build
  *
  * version:     2.2
- * build:       2ecfe01
- * build date:  Wed Apr 11 11:21:18 CDT 2018
+ * build:       669d57b
+ * build date:  Mon May 21 10:16:52 CDT 2018
  *
  * compilation:
  * cc -O2 -DNDEBUG -std=c99 -pedantic -Wall -Wextra -pthread -c sophia.c
@@ -19,7 +19,7 @@
 
 /* {{{ */
 
-#define SOPHIA_BUILD "2ecfe01"
+#define SOPHIA_BUILD "669d57b"
 
 #line 1 "sophia/std/ss_posix.h"
 #ifndef SS_POSIX_H_
@@ -24282,6 +24282,7 @@ result:;
 		visible = sv_vvisible(visible, q->r, q->vlsn);
 		if (visible == NULL)
 			return 0;
+		v = (char*)visible + sizeof(svv);
 	}
 	return si_getresult(q, v, 0);
 }
