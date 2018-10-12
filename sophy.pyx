@@ -1,3 +1,4 @@
+cimport cython
 from cpython.bytes cimport PyBytes_AsStringAndSize
 from cpython.bytes cimport PyBytes_Check
 from cpython.unicode cimport PyUnicode_AsUTF8String
@@ -598,6 +599,7 @@ cdef class UUIDIndex(SerializedIndex):
         super(UUIDIndex, self).__init__(name, uuid_encode, uuid_decode)
 
 
+@cython.freelist(256)
 cdef class Document(object):
     cdef:
         list refs
@@ -971,6 +973,7 @@ cdef class DatabaseTransaction(Database):
         return self.transaction.txn
 
 
+@cython.freelist(32)
 cdef class Cursor(object):
     cdef:
         Database db
