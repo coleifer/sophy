@@ -243,6 +243,53 @@ class TestBasicOperations(BaseTestCase):
             [('k3', 'v3'), ('k2', 'v2'), ('k1', 'v1')])
 
 
+class TestCursorOptions(BaseTestCase):
+    databases = (
+        ('main', Schema(StringIndex('key'), U16Index('value'))),
+    )
+
+    def test_cursor_options(self):
+        db = self.env['main']
+
+        k_tmpl = 'log:%08x:%08x:record%s'
+        for i in range(16):
+            db[k_tmpl % (i, i, i)] = i
+
+        # Default ordering.
+        self.assertEqual(list(db.cursor()), [
+            (k_tmpl % (i, i, i), i) for i in range(16)])
+
+        # Reverse ordering.
+        self.assertEqual(list(db.cursor(order='<=')), [
+            (k_tmpl % (i, i, i), i) for i in reversed(range(16))])
+
+        # Default ordering with prefix.
+        self.assertEqual(list(db.cursor(prefix='log:')), [
+            (k_tmpl % (i, i, i), i) for i in range(16)])
+
+        # Reverse ordering with prefix. Note that we have to specify a
+        # start-key, which is probably indicative of a bug (see sophia #167).
+        self.assertEqual(list(db.cursor(order='<=', prefix='log:')), [])
+        self.assertEqual(list(db.cursor(order='<=', prefix='log:', key='m')), [
+            (k_tmpl % (i, i, i), i) for i in reversed(range(16))])
+
+        # Use the following key as a starting-point.
+        key = k_tmpl % (12, 12, 12)
+
+        # Iterate up from log:0000000c:0000000c:recordc (inclusive).
+        self.assertEqual(list(db.cursor(prefix='log:', key=key)), [
+            (k_tmpl % (i, i, i), i) for i in range(12, 16)])
+        # Iterate up from log:0000000c:0000000c:recordc (exclusive).
+        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='>')), [
+            (k_tmpl % (i, i, i), i) for i in range(13, 16)])
+        # Iterate down from log:0000000c:0000000c:recordc (inclusive).
+        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='<=')), [
+            (k_tmpl % (i, i, i), i) for i in reversed(range(13))])
+        # Iterate down from log:0000000c:0000000c:recordc (exclusive).
+        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='<')), [
+            (k_tmpl % (i, i, i), i) for i in reversed(range(12))])
+
+
 class TestMultipleDatabases(BaseTestCase):
     databases = (
         ('main', Schema([StringIndex('key')], [StringIndex('value')])),
