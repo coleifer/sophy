@@ -246,6 +246,8 @@ class TestBasicOperations(BaseTestCase):
 class TestCursorOptions(BaseTestCase):
     databases = (
         ('main', Schema(StringIndex('key'), U16Index('value'))),
+        ('secondary', Schema([StringIndex('key_a'), StringIndex('key_b')],
+                             U8Index('value'))),
     )
 
     def test_cursor_options(self):
@@ -255,39 +257,79 @@ class TestCursorOptions(BaseTestCase):
         for i in range(16):
             db[k_tmpl % (i, i, i)] = i
 
+        def assertCursor(cursor, indexes):
+            self.assertEqual(list(cursor), [
+                (k_tmpl % (i, i, i), i) for i in indexes])
+
         # Default ordering.
-        self.assertEqual(list(db.cursor()), [
-            (k_tmpl % (i, i, i), i) for i in range(16)])
+        assertCursor(db.cursor(), range(16))
 
         # Reverse ordering.
-        self.assertEqual(list(db.cursor(order='<=')), [
-            (k_tmpl % (i, i, i), i) for i in reversed(range(16))])
+        assertCursor(db.cursor(order='<='), reversed(range(16)))
 
         # Default ordering with prefix.
-        self.assertEqual(list(db.cursor(prefix='log:')), [
-            (k_tmpl % (i, i, i), i) for i in range(16)])
+        assertCursor(db.cursor(prefix='log:'), range(16))
 
         # Reverse ordering with prefix. Note that we have to specify a
         # start-key, which is probably indicative of a bug (see sophia #167).
-        self.assertEqual(list(db.cursor(order='<=', prefix='log:')), [])
-        self.assertEqual(list(db.cursor(order='<=', prefix='log:', key='m')), [
-            (k_tmpl % (i, i, i), i) for i in reversed(range(16))])
+        assertCursor(db.cursor(order='<=', prefix='log:'), [])  # XXX: bug?
+        assertCursor(db.cursor(order='<=', prefix='log:', key='m'),
+                     reversed(range(16)))
 
         # Use the following key as a starting-point.
         key = k_tmpl % (12, 12, 12)
 
         # Iterate up from log:0000000c:0000000c:recordc (inclusive).
-        self.assertEqual(list(db.cursor(prefix='log:', key=key)), [
-            (k_tmpl % (i, i, i), i) for i in range(12, 16)])
+        assertCursor(db.cursor(prefix='log:', key=key), range(12, 16))
         # Iterate up from log:0000000c:0000000c:recordc (exclusive).
-        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='>')), [
-            (k_tmpl % (i, i, i), i) for i in range(13, 16)])
+        assertCursor(db.cursor(prefix='log:', key=key, order='>'),
+                     range(13, 16))
         # Iterate down from log:0000000c:0000000c:recordc (inclusive).
-        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='<=')), [
-            (k_tmpl % (i, i, i), i) for i in reversed(range(13))])
+        assertCursor(db.cursor(prefix='log:', key=key, order='<='),
+                     reversed(range(13)))
         # Iterate down from log:0000000c:0000000c:recordc (exclusive).
-        self.assertEqual(list(db.cursor(prefix='log:', key=key, order='<')), [
-            (k_tmpl % (i, i, i), i) for i in reversed(range(12))])
+        assertCursor(db.cursor(prefix='log:', key=key, order='<'),
+                     reversed(range(12)))
+
+    def test_cursor_options_multikey(self):
+        db = self.env['secondary']
+        ka_tmpl = 'log:%08x'
+        kb_tmpl = 'evt:%08x'
+        for i in range(4):
+            for j in range(4):
+                db[ka_tmpl % i, kb_tmpl % j] = (4 * i) + j
+
+        def assertCursor(cursor, indexes):
+            self.assertEqual(list(cursor), [
+                ((ka_tmpl % (i // 4), kb_tmpl % (i % 4)), i) for i in indexes])
+
+        # Default and reverse ordering.
+        assertCursor(db.cursor(), range(16))
+        assertCursor(db.cursor(order='<='), reversed(range(16)))
+
+        # Default and reverse ordering with prefix.
+        assertCursor(db.cursor(prefix='log:'), range(16))
+        assertCursor(db.cursor(order='<=', prefix='log:'), [])  # XXX: bug?
+        assertCursor(db.cursor(order='<=', prefix='log:', key=('m', '')),
+                     reversed(range(16)))
+
+        ka = ka_tmpl % 2
+        kb = kb_tmpl % 2
+        for prefix in (None, 'log:'):
+            assertCursor(db.cursor(prefix=prefix, key=(ka, kb)), range(10, 16))
+            assertCursor(db.cursor(prefix=prefix, key=(ka, kb), order='>'),
+                         range(11, 16))
+            assertCursor(db.cursor(prefix=prefix, key=(ka, kb), order='<='),
+                         reversed(range(11)))
+            assertCursor(db.cursor(prefix=prefix, key=(ka, kb), order='<'),
+                         reversed(range(10)))
+
+        assertCursor(db.cursor(prefix=ka), range(8, 12))
+        assertCursor(db.cursor(prefix=ka, order='<='), [])  # XXX: bug?
+
+        # The second key does not factor into the prefix.
+        assertCursor(db.cursor(prefix='evt:'), [])
+        assertCursor(db.cursor(prefix='evt:', order='<='), [])
 
 
 class TestMultipleDatabases(BaseTestCase):
