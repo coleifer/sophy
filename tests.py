@@ -12,15 +12,18 @@ DB_NAME = 'db-test'
 TEST_DIR = 'sophia-test'
 
 
+def cleanup():
+    if os.path.exists(TEST_DIR):
+        shutil.rmtree(TEST_DIR)
+
+
 class BaseTestCase(unittest.TestCase):
     databases = (
         ('main', Schema([StringIndex('key')], [StringIndex('value')])),
     )
 
     def setUp(self):
-        if os.path.exists(TEST_DIR):
-            shutil.rmtree(TEST_DIR)
-
+        cleanup()
         self.env = self.create_env()
         for name, schema in self.databases:
             self.env.add_database(name, schema)
@@ -28,11 +31,70 @@ class BaseTestCase(unittest.TestCase):
 
     def tearDown(self):
         assert self.env.close()
-        if os.path.exists(TEST_DIR):
-            shutil.rmtree(TEST_DIR)
+        cleanup()
 
     def create_env(self):
         return Sophia(TEST_DIR)
+
+
+class TestConfigurationStability(unittest.TestCase):
+    def setUp(self):
+        cleanup()
+        self.env = Sophia(TEST_DIR)
+
+    def tearDown(self):
+        self.env.close()
+        cleanup()
+
+    def test_configuration_stability(self):
+        self.env.scheduler_threads = 2
+        schema = Schema([StringIndex('k'), U16Index('ki')], StringIndex('val'))
+        db = self.env.add_database('main', schema)
+        db.compression = 'lz4'
+        self.env.open()
+        self.assertEqual(self.env.scheduler_threads, 2)
+        self.assertEqual(db.compression, b'lz4')
+        self.assertEqual(db.mmap, 1)
+        self.assertEqual(db.sync, 1)
+
+        n = 1000
+        for i in range(n):
+            db['k%064d' % i, i] = 'v%0256d' % i
+
+        for i in range(n):
+            self.assertEqual(db['k%064d' % i, i], 'v%0256d' % i)
+
+        self.assertTrue(self.env.close())
+
+        # Start fresh with new env/db objects and validate config persists.
+        env2 = Sophia(TEST_DIR)
+        db2 = env2.add_database('main', schema)
+        self.assertTrue(env2.open())
+
+        # Scheduler threads does not persist.
+        self.assertFalse(env2.scheduler_threads == 2)
+
+        # Compression persists.
+        self.assertEqual(db2.compression, b'lz4')
+
+        # We can re-read the data.
+        for i in range(n):
+            self.assertEqual(db2['k%064d' % i, i], 'v%0256d' % i)
+
+        db2['kx', 0] = 'vx'
+        self.assertTrue(env2.close())
+
+        # And re-open our original env.
+        self.assertTrue(self.env.open())
+
+        # Compression persists.
+        self.assertEqual(db.compression, b'lz4')
+
+        # We can re-read the data using our original db handle.
+        for i in range(n):
+            self.assertEqual(db['k%064d' % i, i], 'v%0256d' % i)
+
+        self.assertEqual(db['kx', 0], 'vx')
 
 
 class TestConfiguration(BaseTestCase):
