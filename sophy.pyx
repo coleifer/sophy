@@ -775,14 +775,15 @@ cdef class Database(object):
             return True
         return False
 
-    cdef bint _delete(self, tuple key):
+    cdef int _delete(self, tuple key):
         cdef:
-            bint ret
+            int ret
             void *handle = sp_document(self.db)
             Document doc = create_document(handle)
         self.schema.set_key(doc, key)
-        sp_delete(self._get_target(), doc.handle)
+        ret = sp_delete(self._get_target(), doc.handle)
         doc.release_refs()
+        return ret
 
     def delete(self, key):
         check_open(self.env)
