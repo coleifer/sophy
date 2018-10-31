@@ -858,6 +858,13 @@ cdef class Database(object):
         cdef Cursor cursor
         first = start is None
         last = stop is None
+
+        if not self.schema.multi_key:
+            if isinstance(start, tuple):
+                start = start[0]
+            if isinstance(stop, tuple):
+                stop = stop[0]
+
         if reverse:
             if (first and not last) or (last and not first):
                 start, stop = stop, start

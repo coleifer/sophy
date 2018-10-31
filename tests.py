@@ -166,6 +166,11 @@ class TestBasicOperations(BaseTestCase):
         for i in range(4):
             db['k%s' % i] = 'v%s' % i
 
+        for k1, k2 in (('k1', 'k2'), (('k1',), 'k2'), ('k1', ('k2',)),
+                       (('k1',), ('k2',))):
+            self.assertEqual(list(db.get_range(k1, k2)), [
+                ('k1', 'v1'), ('k2', 'v2')])
+
         self.assertEqual(list(db['k1':'k2']), [('k1', 'v1'), ('k2', 'v2')])
         self.assertEqual(list(db['k01':'k21']), [('k1', 'v1'), ('k2', 'v2')])
         self.assertEqual(list(db['k2':]), [('k2', 'v2'), ('k3', 'v3')])
