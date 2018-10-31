@@ -64,6 +64,18 @@ cdef inline bytes encode(obj):
         result = bytes(obj)
     return result
 
+cdef inline unicode decode(obj):
+    cdef unicode result
+    if PyBytes_Check(obj):
+        result = obj.decode('utf-8')
+    elif PyUnicode_Check(obj):
+        result = <unicode>obj
+    elif obj is None:
+        return None
+    else:
+        result = str(obj)
+    return result
+
 cdef inline _getstring(void *obj, const char *key):
     cdef:
         char *buf
@@ -76,7 +88,7 @@ cdef inline _getstring(void *obj, const char *key):
 
 cdef inline _check(void *env, int rc):
     if rc == -1:
-        error = _getstring(env, 'sophia.error')
+        error = decode(_getstring(env, 'sophia.error'))
         if error:
             raise SophiaError(error)
         else:
@@ -132,7 +144,7 @@ cdef class Configuration(object):
             raise Exception('Setting value must be bool, int or string.')
 
         if rc == -1:
-            error = _getstring(self.env.env, 'sophia.error')
+            error = decode(_getstring(self.env.env, 'sophia.error'))
             if error:
                 raise SophiaError(error)
             else:
