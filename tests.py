@@ -310,6 +310,71 @@ class TestBasicOperations(BaseTestCase):
             [('k3', 'v3'), ('k2', 'v2'), ('k1', 'v1')])
 
 
+class TestValidation(BaseTestCase):
+    databases = (
+        ('single', Schema(StringIndex('key'), U8Index('value'))),
+        ('multi', Schema((U8Index('k1'), StringIndex('k2')),
+                         (U8Index('v1'), StringIndex('v2')))),
+    )
+
+    def test_validate_single(self):
+        db = self.env['single']
+        db.set('k1', 1)
+        db.set(('k2',), 2)
+        db.set('k3', (3,))
+        db.set(('k4',), (4,))
+        for i in range(1, 5):
+            self.assertTrue(db.exists('k%s' % i))
+            self.assertTrue(db.exists(('k%s' % i,)))
+            self.assertEqual(db.get('k%s' % i), i)
+            self.assertEqual(db.get(('k%s' % i,)), i)
+
+        # Invalid key- and value-lengths.
+        self.assertRaises(ValueError, db.set, ('k1', 1), 100)
+        self.assertRaises(ValueError, db.set, 'k1', (101, 102))
+        self.assertRaises(ValueError, db.get, ('k1', 1))
+        self.assertRaises(ValueError, db.exists, ('k1', 1))
+
+        # Bulk-operations.
+        self.assertRaises(ValueError, db.update, {('k1', 1): 100})
+        self.assertRaises(ValueError, db.update, {'k1': (101, 102)})
+        self.assertRaises(ValueError, db.multi_get, [('k1', 1)])
+        self.assertRaises(ValueError, db.multi_get_dict, [('k1', 1)])
+        self.assertRaises(ValueError, db.multi_delete, [('k1', 1)])
+
+        # No bogus data was written.
+        self.assertEqual(db['k1'], 1)
+
+    def test_validate_multi(self):
+        db = self.env['multi']
+        db.set((1, 'k1'), (11, 'v1'))
+
+        self.assertTrue(db.exists((1, 'k1')))
+        self.assertEqual(db.get((1, 'k1')), (11, 'v1'))
+
+        # Invalid key- and value-lengths.
+        self.assertRaises(ValueError, db.set, 1, (101, 'v1'))
+        self.assertRaises(ValueError, db.set, (1, 'k1'), 102)
+        self.assertRaises(ValueError, db.set, (1, 'k1', 2), (101, 'v1', 102))
+        self.assertRaises(ValueError, db.get, 1)
+        self.assertRaises(ValueError, db.get, (1, 'k1', 101))
+        self.assertRaises(ValueError, db.exists, 1)
+        self.assertRaises(ValueError, db.exists, (1, 'k1', 101))
+
+        # Bulk-operations.
+        self.assertRaises(ValueError, db.update, {1: (100, 'v1')})
+        self.assertRaises(ValueError, db.update, {(1, 'k1'): 100})
+        self.assertRaises(ValueError, db.update, {(1, 'k1', 2): 100})
+        self.assertRaises(ValueError, db.update, {(1, 'k1', 2): (12, 'v1', 2)})
+        for k in (1, (1, 'k1', 2)):
+            self.assertRaises(ValueError, db.multi_get, [k])
+            self.assertRaises(ValueError, db.multi_get_dict, [k])
+            self.assertRaises(ValueError, db.multi_delete, [k])
+
+        # No bogus data was written.
+        self.assertEqual(db[1, 'k1'], (11, 'v1'))
+
+
 class TestCursorOptions(BaseTestCase):
     databases = (
         ('main', Schema(StringIndex('key'), U16Index('value'))),
