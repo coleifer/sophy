@@ -235,6 +235,7 @@ cdef class Sophia(object):
         if self.is_open:
             raise SophiaError('cannot add database to open environment.')
 
+        name = encode(name)  # Always store name internally as bytestring.
         db = Database(self, name, schema)
         self.databases.append(db)
         self.database_lookup[name] = db
@@ -244,14 +245,14 @@ cdef class Sophia(object):
         if self.is_open:
             raise SophiaError('cannot remove database from open environment.')
 
-        db = self.database_lookup.pop(name)
+        db = self.database_lookup.pop(encode(name))
         self.databases.remove(db)
 
     def get_database(self, name):
-        return self.database_lookup[name]
+        return self.database_lookup[encode(name)]
 
     def __getitem__(self, name):
-        return self.database_lookup[name]
+        return self.database_lookup[encode(name)]
 
     cdef configure_database(self, Database db):
         cdef:
@@ -266,14 +267,13 @@ cdef class Sophia(object):
             # db.<name>.scheme = <index name>
             # db.<name>.scheme.<index name> = <dtype>,key(i)
             iname = encode(index.name)
-            self.set_string(b'.'.join((b'db', bname, b'scheme')), iname)
-            self.set_string(b'.'.join((b'db', bname, b'scheme', iname)),
+            self.set_string(b'.'.join((b'db', bname, b'scheme')), index.bname)
+            self.set_string(b'.'.join((b'db', bname, b'scheme', index.bname)),
                             encode('%s,key(%d)' % (index.data_type, i)))
 
         for index in db.schema.value:
-            iname = encode(index.name)
-            self.set_string(b'.'.join((b'db', bname, b'scheme')), iname)
-            self.set_string(b'.'.join((b'db', bname, b'scheme', iname)),
+            self.set_string(b'.'.join((b'db', bname, b'scheme')), index.bname)
+            self.set_string(b'.'.join((b'db', bname, b'scheme', index.bname)),
                             encode(index.data_type))
 
         db.db = sp_getobject(self.env, b'db.' + bname)
@@ -739,14 +739,14 @@ cdef class Database(object):
         Schema schema
         void *db
         readonly Sophia env
-        readonly str name
+        readonly name
 
     def __cinit__(self):
         self.db = <void *>0
 
     def __init__(self, Sophia env, name, schema):
         self.env = env
-        self.name = name
+        self.name = decode(name)
         self.bname = encode(name)
         self.schema = schema
 
