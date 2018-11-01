@@ -310,6 +310,45 @@ class TestBasicOperations(BaseTestCase):
             [('k3', 'v3'), ('k2', 'v2'), ('k1', 'v1')])
 
 
+class TestGetRangeNormalizeValues(BaseTestCase):
+    databases = (
+        ('single_u', Schema(StringIndex('key'), U8Index('value'))),
+        ('single_b', Schema(BytesIndex('key'), U8Index('value'))),
+        ('multi_u', Schema([StringIndex('k0'), StringIndex('k1')],
+                           [U8Index('value')])),
+        ('multi_b', Schema([BytesIndex('k0'), BytesIndex('k1')],
+                           [U8Index('value')])),
+        ('multi_ub', Schema([StringIndex('k0'), BytesIndex('k1')],
+                            [U8Index('value')])),
+    )
+
+    def test_get_range_normalized_single(self):
+        def assertRange(db, start, stop, exp):
+            self.assertEqual([v for _, v in db.get_range(start, stop)], exp)
+
+        for db_name in ('single_u', 'single_b'):
+            db = self.env[db_name]
+            for i in range(10):
+                db['k%s' % i] = i
+
+            assertRange(db, 'k2', 'k45', [2, 3, 4])
+            assertRange(db, b'k2', b'k45', [2, 3, 4])
+
+    def test_get_range_normalized_multi(self):
+        def assertRange(db, start, stop, exp):
+            self.assertEqual([v for _, v in db.get_range(start, stop)], exp)
+
+        for db_name in ('multi_u', 'multi_b', 'multi_ub'):
+            db = self.env[db_name]
+            for i in range(10):
+                db['k%s' % i, 'x%s' % i] = i
+
+            assertRange(db, ('k2', 'x2'), ('k45', 'x45'), [2, 3, 4])
+            assertRange(db, (b'k2', b'x2'), (b'k45', b'x45'), [2, 3, 4])
+            assertRange(db, (b'k2', 'x2'), (b'k45', 'x45'), [2, 3, 4])
+            assertRange(db, ('k2', b'x2'), ('k45', b'x45'), [2, 3, 4])
+
+
 class TestValidation(BaseTestCase):
     databases = (
         ('single', Schema(StringIndex('key'), U8Index('value'))),

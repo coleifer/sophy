@@ -623,6 +623,28 @@ cdef class UUIDIndex(SerializedIndex):
         super(UUIDIndex, self).__init__(name, uuid_encode, uuid_decode)
 
 
+cdef normalize_tuple(Schema schema, tuple t):
+    cdef:
+        BaseIndex index
+        list accum = []
+
+    for index, value in zip(schema.key, t):
+        if isinstance(index, StringIndex):
+            value = decode(value)
+        elif isinstance(index, BytesIndex):
+            value = encode(value)
+        accum.append(value)
+    return tuple(accum)
+
+cdef normalize_value(Schema schema, i):
+    cdef BaseIndex idx = schema.key[0]
+    if isinstance(idx, StringIndex):
+        return decode(i)
+    elif isinstance(idx, BytesIndex):
+        return encode(i)
+    return i
+
+
 @cython.freelist(256)
 cdef class Document(object):
     cdef:
@@ -902,6 +924,14 @@ cdef class Database(object):
                 start, stop = stop, start
         elif (not first and not last) and (start > stop):
             reverse = True
+
+        # We need to normalize the stop key to avoid invalid comparisons
+        # between bytes <-> unicode when detecting whether to stop iterating.
+        if stop is not None:
+            if self.schema.multi_key:
+                stop = normalize_tuple(self.schema, stop)
+            else:
+                stop = normalize_value(self.schema, stop)
 
         order = '<=' if reverse else '>='
         cursor = self.cursor(order=order, key=start)
