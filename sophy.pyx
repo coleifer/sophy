@@ -86,9 +86,19 @@ cdef inline _getstring(void *obj, const char *key):
         value = buf[:nlen - 1]
         return value
 
+cdef inline _getustring(void *obj, const char *key):
+    cdef:
+        char *buf
+        int nlen
+
+    buf = <char *>sp_getstring(obj, key, &nlen)
+    if buf:
+        value = buf[:nlen - 1]
+        return value.decode('utf-8')
+
 cdef inline _check(void *env, int rc):
     if rc == -1:
-        error = decode(_getstring(env, 'sophia.error'))
+        error = _getustring(env, 'sophia.error')
         if error:
             raise SophiaError(error)
         else:
@@ -106,49 +116,57 @@ cdef class Configuration(object):
 
     def __cinit__(self, Sophia env):
         self.env = env
+
+        # A dictionary mapping the setting key (bytes) to the value, which is
+        # either a bytestring or integer.
         self.settings = {}
 
     def set_option(self, key, value):
-        self.settings[key] = value
+        cdef bytes bkey = encode(key)
+
+        if isinstance(value, bool):
+            value = value and 1 or 0
+        elif isinstance(value, basestring):
+            value = encode(value)
+        elif not isinstance(value, int):
+            raise Exception('Setting value must be bool, int or string.')
+
+        self.settings[bkey] = value
         if self.env.is_open:
-            self._set(key, value)
+            self._set(bkey, value)
 
     def get_option(self, key, is_string=True):
         check_open(self.env)
         cdef bytes bkey = encode(key)
         if is_string:
-            return _getstring(self.env.env, <const char *>bkey)
+            return _getustring(self.env.env, <const char *>bkey)
         else:
             return sp_getint(self.env.env, <const char *>bkey)
 
     cdef clear_option(self, key):
         try:
-            del self.settings[key]
+            del self.settings[encode(key)]
         except KeyError:
             pass
 
     cdef int _set(self, key, value) except -1:
-        cdef:
-            bytes bkey = encode(key)
-            int rc
+        cdef int rc
 
-        if isinstance(value, bool):
-            value = value and 1 or 0
         if isinstance(value, int):
-            rc = sp_setint(self.env.env, <const char *>bkey, <int>value)
-        elif isinstance(value, basestring):
-            bvalue = encode(value)
-            rc = sp_setstring(self.env.env, <const char *>bkey,
-                              <const char *>bvalue, 0)
+            rc = sp_setint(self.env.env, <const char *>key, <int>value)
+        elif isinstance(value, bytes):
+            rc = sp_setstring(self.env.env, <const char *>key,
+                              <const char *>value, 0)
         else:
-            raise Exception('Setting value must be bool, int or string.')
+            raise Exception('Invalid setting detected: %s=%s' % (key, value))
 
         if rc == -1:
-            error = decode(_getstring(self.env.env, 'sophia.error'))
+            error = _getustring(self.env.env, 'sophia.error')
             if error:
                 raise SophiaError(error)
             else:
                 raise SophiaError('unknown error occurred.')
+
         return rc
 
     cdef configure(self):
@@ -156,8 +174,7 @@ cdef class Configuration(object):
             self._set(key, value)
 
 
-def __config__(config_name, is_string=False, is_readonly=False):
-    cdef bytes name = encode(config_name)
+def __config__(name, is_string=False, is_readonly=False):
     def _getter(self):
         return self.config.get_option(name, is_string)
     if is_readonly:
@@ -171,18 +188,17 @@ def __config_ro__(name, is_string=False):
 
 def __operation__(name):
     def _method(self):
-        self.config.set_option(encode(name), 0)
+        self.config.set_option(name, 0)
     return _method
 
-def __dbconfig__(config_name, is_string=False, is_readonly=False):
-    cdef bytes name = encode(config_name)
+def __dbconfig__(name, is_string=False, is_readonly=False):
     def _getter(self):
-        return self.env.config.get_option(b'.'.join((b'db', self.name, name)),
+        return self.env.config.get_option('.'.join(('db', self.name, name)),
                                           is_string)
     if is_readonly:
         return property(_getter)
     def _setter(self, value):
-        self.env.config.set_option(b'.'.join((b'db', self.name, name)), value)
+        self.env.config.set_option('.'.join(('db', self.name, name)), value)
     return property(_getter, _setter)
 
 def __dbconfig_ro__(name, is_string=False):
@@ -195,10 +211,11 @@ def __dbconfig_s__(name, is_readonly=False):
 cdef class Sophia(object):
     cdef:
         bint is_open
+        bytes bpath
         readonly Configuration config
         dict database_lookup
         list databases
-        readonly bytes path
+        readonly unicode path
         void *env
 
     def __cinit__(self):
@@ -209,7 +226,8 @@ cdef class Sophia(object):
         self.is_open = False
         self.database_lookup = {}
         self.databases = []
-        self.path = encode(path)
+        self.path = decode(path)
+        self.bpath = encode(path)
 
     def add_database(self, name, Schema schema):
         cdef Database db
@@ -238,24 +256,27 @@ cdef class Sophia(object):
     cdef configure_database(self, Database db):
         cdef:
             BaseIndex index
+            bytes bname = encode(db.name)
+            bytes iname
             int i
 
-        self.set_string(b'db', db.name)
+        self.set_string(b'db', bname)
 
         for i, index in enumerate(db.schema.key):
             # db.<name>.scheme = <index name>
             # db.<name>.scheme.<index name> = <dtype>,key(i)
-            self.set_string(b'.'.join((b'db', db.name, b'scheme')), index.name)
-            self.set_string(b'.'.join((b'db', db.name, b'scheme', index.name)),
-                            encode('%s,key(%d)' % (
-                                index.data_type.decode('utf-8'), i)))
+            iname = encode(index.name)
+            self.set_string(b'.'.join((b'db', bname, b'scheme')), iname)
+            self.set_string(b'.'.join((b'db', bname, b'scheme', iname)),
+                            encode('%s,key(%d)' % (index.data_type, i)))
 
         for index in db.schema.value:
-            self.set_string(b'.'.join((b'db', db.name, b'scheme')), index.name)
-            self.set_string(b'.'.join((b'db', db.name, b'scheme', index.name)),
-                            index.data_type)
+            iname = encode(index.name)
+            self.set_string(b'.'.join((b'db', bname, b'scheme')), iname)
+            self.set_string(b'.'.join((b'db', bname, b'scheme', iname)),
+                            encode(index.data_type))
 
-        db.db = sp_getobject(self.env, b'db.' + db.name)
+        db.db = sp_getobject(self.env, b'db.' + bname)
 
     def open(self):
         if self.is_open:
@@ -264,7 +285,7 @@ cdef class Sophia(object):
         cdef Database db
 
         self.env = sp_env()
-        self.set_string(b'sophia.path', <const char *>self.path)
+        self.set_string(b'sophia.path', <const char *>self.bpath)
 
         for db in self.databases:
             self.configure_database(db)
@@ -420,26 +441,28 @@ cdef class Transaction(object):
         return DatabaseTransaction(database, self)
 
 
-SCHEMA_STRING = b'string'
-SCHEMA_U64 = b'u64'
-SCHEMA_U32 = b'u32'
-SCHEMA_U16 = b'u16'
-SCHEMA_U8 = b'u8'
-SCHEMA_U64_REV = b'u64_rev'
-SCHEMA_U32_REV = b'u32_rev'
-SCHEMA_U16_REV = b'u16_rev'
-SCHEMA_U8_REV = b'u8_rev'
+SCHEMA_STRING = 'string'
+SCHEMA_U64 = 'u64'
+SCHEMA_U32 = 'u32'
+SCHEMA_U16 = 'u16'
+SCHEMA_U8 = 'u8'
+SCHEMA_U64_REV = 'u64_rev'
+SCHEMA_U32_REV = 'u32_rev'
+SCHEMA_U16_REV = 'u16_rev'
+SCHEMA_U8_REV = 'u8_rev'
 
 
 cdef class BaseIndex(object):
     cdef:
-        bytes name
+        bytes bname
+        str name
 
     by_reference = False
-    data_type = b''
+    data_type = ''
 
     def __init__(self, name):
-        self.name = encode(name)
+        self.name = name
+        self.bname = encode(name)
 
     cdef set_key(self, void *obj, value): pass
     cdef get_key(self, void *obj): pass
@@ -452,7 +475,8 @@ cdef class SerializedIndex(BaseIndex):
     data_type = SCHEMA_STRING
 
     def __init__(self, name, serialize, deserialize):
-        self.name = encode(name)
+        self.name = name
+        self.bname = encode(name)
         self._serialize = serialize
         self._deserialize = deserialize
 
@@ -467,7 +491,7 @@ cdef class SerializedIndex(BaseIndex):
             bvalue = encode(bvalue)
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
         return bvalue
 
     cdef get_key(self, void *obj):
@@ -475,7 +499,7 @@ cdef class SerializedIndex(BaseIndex):
             char *buf
             int buflen
 
-        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
+        buf = <char *>sp_getstring(obj, <const char *>self.bname, &buflen)
         if buf:
             return self._deserialize(buf[:buflen - 1])
 
@@ -499,17 +523,11 @@ cdef class BytesIndex(BaseIndex):
             bvalue = value
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
         return bvalue
 
     cdef get_key(self, void *obj):
-        cdef:
-            char *buf
-            int buflen
-
-        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
-        if buf:
-            return buf[:buflen - 1]
+        return _getstring(obj, <const char *>self.bname)
 
 
 cdef class StringIndex(BaseIndex):
@@ -523,17 +541,11 @@ cdef class StringIndex(BaseIndex):
             Py_ssize_t buflen
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.name, buf, buflen + 1)
+        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
         return bvalue
 
     cdef get_key(self, void *obj):
-        cdef:
-            char *buf
-            int buflen
-
-        buf = <char *>sp_getstring(obj, <const char *>self.name, &buflen)
-        if buf:
-            return buf[:buflen - 1].decode('utf-8')
+        return _getustring(obj, <const char *>self.bname)
 
 
 cdef class U64Index(BaseIndex):
@@ -542,10 +554,10 @@ cdef class U64Index(BaseIndex):
     cdef set_key(self, void *obj, value):
         cdef:
             uint64_t ival = <uint64_t>value
-        sp_setint(obj, <const char *>self.name, ival)
+        sp_setint(obj, <const char *>self.bname, ival)
 
     cdef get_key(self, void *obj):
-        return sp_getint(obj, <const char *>self.name)
+        return sp_getint(obj, <const char *>self.bname)
 
 
 cdef class U32Index(U64Index):
@@ -554,7 +566,7 @@ cdef class U32Index(U64Index):
     cdef set_key(self, void *obj, value):
         cdef:
             uint32_t ival = <uint32_t>value
-        sp_setint(obj, <const char *>self.name, ival)
+        sp_setint(obj, <const char *>self.bname, ival)
 
 
 cdef class U16Index(U64Index):
@@ -563,7 +575,7 @@ cdef class U16Index(U64Index):
     cdef set_key(self, void *obj, value):
         cdef:
             uint16_t ival = <uint16_t>value
-        sp_setint(obj, <const char *>self.name, ival)
+        sp_setint(obj, <const char *>self.bname, ival)
 
 
 cdef class U8Index(U64Index):
@@ -572,7 +584,7 @@ cdef class U8Index(U64Index):
     cdef set_key(self, void *obj, value):
         cdef:
             uint8_t ival = <uint8_t>value
-        sp_setint(obj, <const char *>self.name, ival)
+        sp_setint(obj, <const char *>self.bname, ival)
 
 
 cdef class U64RevIndex(U64Index):
@@ -637,6 +649,8 @@ cdef class Schema(object):
         int key_n_ref, value_n_ref
         list key
         list value
+        readonly int key_length
+        readonly int value_length
 
     def __init__(self, key_parts=None, value_parts=None):
         cdef:
@@ -658,13 +672,15 @@ cdef class Schema(object):
 
     def add_key(self, BaseIndex index):
         self.key.append(index)
-        self.multi_key = len(self.key) != 1
+        self.key_length = len(self.key)
+        self.multi_key = self.key_length > 1
         if index.by_reference:
             self.key_n_ref += 1
 
     def add_value(self, BaseIndex index):
         self.value.append(index)
-        self.multi_value = len(self.value) != 1
+        self.value_length = len(self.value)
+        self.multi_value = self.value_length > 1
         if index.by_reference:
             self.value_n_ref += 1
 
@@ -672,6 +688,9 @@ cdef class Schema(object):
         cdef:
             BaseIndex index
             int i
+
+        if len(parts) != self.key_length:
+            raise ValueError('key must be a %s-tuple' % self.key_length)
 
         for i, index in enumerate(self.key):
             ref = index.set_key(doc.handle, parts[i])
@@ -691,6 +710,9 @@ cdef class Schema(object):
         cdef:
             BaseIndex index
             int i
+
+        if len(parts) != self.value_length:
+            raise ValueError('value must be a %s-tuple' % self.value_length)
 
         for i, index in enumerate(self.value):
             ref = index.set_key(doc.handle, parts[i])
@@ -713,17 +735,19 @@ cdef class Schema(object):
 
 cdef class Database(object):
     cdef:
-        readonly bytes name
-        readonly Sophia env
+        bytes bname
         Schema schema
         void *db
+        readonly Sophia env
+        readonly str name
 
     def __cinit__(self):
         self.db = <void *>0
 
     def __init__(self, Sophia env, name, schema):
         self.env = env
-        self.name = encode(name)
+        self.name = name
+        self.bname = encode(name)
         self.schema = schema
 
     def __dealloc__(self):
@@ -773,7 +797,7 @@ cdef class Database(object):
 
         return data if self.schema.multi_value else data[0]
 
-    cdef bint _exists(self, tuple key):
+    cdef _exists(self, tuple key):
         cdef:
             void *handle = sp_document(self.db)
             void *result
@@ -787,7 +811,7 @@ cdef class Database(object):
             return True
         return False
 
-    cdef int _delete(self, tuple key):
+    cdef _delete(self, tuple key):
         cdef:
             int ret
             void *handle = sp_document(self.db)
@@ -849,13 +873,7 @@ cdef class Database(object):
     multi_set = update
 
     def multi_get(self, keys):
-        cdef list accum = []
-        for key in keys:
-            try:
-                accum.append(self[key])
-            except KeyError:
-                accum.append(None)
-        return accum
+        return [self.get(key) for key in keys]
 
     def multi_get_dict(self, keys):
         cdef dict accum = {}
@@ -1035,9 +1053,9 @@ cdef class Cursor(object):
         self.current_item = create_document(handle)
         if self.key:
             self.db.schema.set_key(self.current_item, self.key)
-        sp_setstring(self.current_item.handle, 'order', <char *>self.order, 0)
+        sp_setstring(self.current_item.handle, b'order', <char *>self.order, 0)
         if self.prefix:
-            sp_setstring(self.current_item.handle, 'prefix',
+            sp_setstring(self.current_item.handle, b'prefix',
                          <char *>self.prefix,
                          (sizeof(char) * len(self.prefix)))
         return self

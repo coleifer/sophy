@@ -53,7 +53,7 @@ class TestConfigurationStability(unittest.TestCase):
         db.compression = 'lz4'
         self.env.open()
         self.assertEqual(self.env.scheduler_threads, 2)
-        self.assertEqual(db.compression, b'lz4')
+        self.assertEqual(db.compression, 'lz4')
         self.assertEqual(db.mmap, 1)
         self.assertEqual(db.sync, 1)
 
@@ -75,7 +75,7 @@ class TestConfigurationStability(unittest.TestCase):
         self.assertFalse(env2.scheduler_threads == 2)
 
         # Compression persists.
-        self.assertEqual(db2.compression, b'lz4')
+        self.assertEqual(db2.compression, 'lz4')
 
         # We can re-read the data.
         for i in range(n):
@@ -88,7 +88,7 @@ class TestConfigurationStability(unittest.TestCase):
         self.assertTrue(self.env.open())
 
         # Compression persists.
-        self.assertEqual(db.compression, b'lz4')
+        self.assertEqual(db.compression, 'lz4')
 
         # We can re-read the data using our original db handle.
         for i in range(n):
@@ -99,10 +99,10 @@ class TestConfigurationStability(unittest.TestCase):
 
 class TestConfiguration(BaseTestCase):
     def test_version(self):
-        self.assertEqual(self.env.version, b'2.2')
+        self.assertEqual(self.env.version, '2.2')
 
     def test_status(self):
-        self.assertEqual(self.env.status, b'online')
+        self.assertEqual(self.env.status, 'online')
 
 
 class TestBasicOperations(BaseTestCase):
