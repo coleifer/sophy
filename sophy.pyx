@@ -1,3 +1,4 @@
+# cython: language_level=3
 cimport cython
 from cpython.bytes cimport PyBytes_AsStringAndSize
 from cpython.bytes cimport PyBytes_Check
@@ -15,8 +16,10 @@ import uuid
 from pickle import dumps as pdumps
 from pickle import loads as ploads
 try:
-    from msgpack import packb as mpackb
-    from msgpack import unpackb as munpackb
+    from msgpack import packb as msgpack_packb
+    from msgpack import unpackb as msgpack_unpackb
+    mpackb = lambda o: msgpack_packb(o, use_bin_type=True)
+    munpackb = lambda b: msgpack_unpackb(b, raw=False)
 except ImportError:
     mpackb = munpackb = None
 
@@ -43,38 +46,35 @@ cdef extern from "src/sophia.h" nogil:
 
 class SophiaError(Exception): pass
 
-cdef class Sophia(object)
-cdef class Schema(object)
-cdef class Transaction(object)
-
 
 cdef bint IS_PY3K = PY_MAJOR_VERSION == 3
 
-cdef inline bytes encode(obj):
-    cdef bytes result
-    if PyUnicode_Check(obj):
-        result = PyUnicode_AsUTF8String(obj)
-    elif PyBytes_Check(obj):
-        result = <bytes>obj
-    elif obj is None:
-        return None
-    elif IS_PY3K:
-        result = PyUnicode_AsUTF8String(str(obj))
-    else:
-        result = bytes(obj)
-    return result
 
-cdef inline unicode decode(obj):
-    cdef unicode result
-    if PyBytes_Check(obj):
-        result = obj.decode('utf-8')
-    elif PyUnicode_Check(obj):
-        result = <unicode>obj
-    elif obj is None:
+cdef inline unicode decode(key):
+    cdef unicode ukey
+    if PyBytes_Check(key):
+        ukey = key.decode('utf-8')
+    elif PyUnicode_Check(key):
+        ukey = <unicode>key
+    elif key is None:
         return None
     else:
-        result = str(obj)
-    return result
+        ukey = unicode(key)
+    return ukey
+
+
+cdef inline bytes encode(key):
+    cdef bytes bkey
+    if PyUnicode_Check(key):
+        bkey = PyUnicode_AsUTF8String(key)
+    elif PyBytes_Check(key):
+        bkey = <bytes>key
+    elif key is None:
+        return None
+    else:
+        bkey = PyUnicode_AsUTF8String(unicode(key))
+    return bkey
+
 
 cdef inline _getstring(void *obj, const char *key):
     cdef:
@@ -83,8 +83,8 @@ cdef inline _getstring(void *obj, const char *key):
 
     buf = <char *>sp_getstring(obj, key, &nlen)
     if buf:
-        value = buf[:nlen - 1]
-        return value
+        return buf[:nlen - 1]
+
 
 cdef inline _getustring(void *obj, const char *key):
     cdef:
@@ -93,8 +93,8 @@ cdef inline _getustring(void *obj, const char *key):
 
     buf = <char *>sp_getstring(obj, key, &nlen)
     if buf:
-        value = buf[:nlen - 1]
-        return value.decode('utf-8')
+        return decode(buf[:nlen - 1])
+
 
 cdef inline _check(void *env, int rc):
     if rc == -1:
@@ -103,6 +103,7 @@ cdef inline _check(void *env, int rc):
             raise SophiaError(error)
         else:
             raise SophiaError('unknown error occurred.')
+
 
 cdef inline check_open(Sophia env):
     if not env.is_open:
@@ -129,7 +130,7 @@ cdef class Configuration(object):
         elif isinstance(value, basestring):
             value = encode(value)
         elif not isinstance(value, int):
-            raise Exception('Setting value must be bool, int or string.')
+            raise ValueError('Setting value must be bool, int or string.')
 
         self.settings[bkey] = value
         if self.env.is_open:
@@ -158,7 +159,7 @@ cdef class Configuration(object):
             rc = sp_setstring(self.env.env, <const char *>key,
                               <const char *>value, 0)
         else:
-            raise Exception('Invalid setting detected: %s=%s' % (key, value))
+            raise ValueError('Invalid setting detected: %s=%s' % (key, value))
 
         if rc == -1:
             error = _getustring(self.env.env, 'sophia.error')
@@ -292,9 +293,7 @@ cdef class Sophia(object):
 
         self.config.configure()
 
-        cdef int rc
-        with nogil:
-            rc = sp_open(self.env)
+        cdef int rc = sp_open(self.env)
         _check(self.env, rc)
 
         self.is_open = True
@@ -303,9 +302,9 @@ cdef class Sophia(object):
     def close(self):
         if not self.is_open or not self.env:
             return False
+        self.is_open = False
         sp_destroy(self.env)
         self.env = <void *>0
-        self.is_open = False
         return True
 
     def __dealloc__(self):
@@ -385,8 +384,8 @@ cdef class Transaction(object):
         check_open(self.env)
         if self.txn:
             raise SophiaError('This transaction has already been started.')
-        with nogil:
-            self.txn = sp_begin(self.env.env)
+
+        self.txn = sp_begin(self.env.env)
         return self
 
     def commit(self, begin=True):
@@ -395,9 +394,7 @@ cdef class Transaction(object):
             raise SophiaError('Transaction is not currently open. Cannot '
                               'commit.')
 
-        cdef int rc
-        with nogil:
-            rc = sp_commit(self.txn)
+        cdef int rc = sp_commit(self.txn)
         if rc == 1:
             self.txn = <void *>0
             raise SophiaError('transaction was rolled back by another '
@@ -413,8 +410,7 @@ cdef class Transaction(object):
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '
                               'rollback.')
-        with nogil:
-            sp_destroy(self.txn)
+        sp_destroy(self.txn)
         self._reset(begin)
 
     def __enter__(self):
@@ -510,17 +506,9 @@ cdef class BytesIndex(BaseIndex):
 
     cdef set_key(self, void *obj, value):
         cdef:
-            bytes bvalue
+            bytes bvalue = encode(value)
             char *buf
             Py_ssize_t buflen
-
-        if not PyBytes_Check(value):
-            if IS_PY3K:
-                bvalue = bytes(value, 'raw_unicode_escape')
-            else:
-                bvalue = bytes(value)
-        else:
-            bvalue = value
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
         sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
@@ -530,19 +518,9 @@ cdef class BytesIndex(BaseIndex):
         return _getstring(obj, <const char *>self.bname)
 
 
-cdef class StringIndex(BaseIndex):
+cdef class StringIndex(BytesIndex):
     by_reference = True
     data_type = SCHEMA_STRING
-
-    cdef set_key(self, void *obj, value):
-        cdef:
-            bytes bvalue = encode(value)
-            char *buf
-            Py_ssize_t buflen
-
-        PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
-        return bvalue
 
     cdef get_key(self, void *obj):
         return _getustring(obj, <const char *>self.bname)
@@ -624,6 +602,8 @@ cdef class UUIDIndex(SerializedIndex):
 
 
 cdef normalize_tuple(Schema schema, tuple t):
+    # This function is used when doing range comparisons to ensure we don't
+    # accidentally try to compare unicode <-> bytes.
     cdef:
         BaseIndex index
         list accum = []
@@ -635,6 +615,7 @@ cdef normalize_tuple(Schema schema, tuple t):
             value = encode(value)
         accum.append(value)
     return tuple(accum)
+
 
 cdef normalize_value(Schema schema, i):
     cdef BaseIndex idx = schema.key[0]
@@ -668,7 +649,6 @@ cdef Document create_document(void *handle):
 cdef class Schema(object):
     cdef:
         bint multi_key, multi_value
-        int key_n_ref, value_n_ref
         list key
         list value
         readonly int key_length
@@ -678,7 +658,6 @@ cdef class Schema(object):
         cdef:
             BaseIndex index
 
-        self.key_n_ref = self.value_n_ref = 0
         self.key = []
         self.value = []
         if key_parts is not None:
@@ -696,15 +675,11 @@ cdef class Schema(object):
         self.key.append(index)
         self.key_length = len(self.key)
         self.multi_key = self.key_length > 1
-        if index.by_reference:
-            self.key_n_ref += 1
 
     def add_value(self, BaseIndex index):
         self.value.append(index)
         self.value_length = len(self.value)
         self.multi_value = self.value_length > 1
-        if index.by_reference:
-            self.value_n_ref += 1
 
     cdef set_key(self, Document doc, tuple parts):
         cdef:
