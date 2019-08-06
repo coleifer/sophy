@@ -451,7 +451,7 @@ SCHEMA_U8_REV = 'u8_rev'
 cdef class BaseIndex(object):
     cdef:
         bytes bname
-        str name
+        object name
 
     by_reference = False
     data_type = ''
