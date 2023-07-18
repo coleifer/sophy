@@ -913,9 +913,9 @@ cdef class Database(object):
         for key, value in cursor:
             if stop:
                 if reverse and key < stop:
-                    raise StopIteration
+                    break
                 elif not reverse and key > stop:
-                    raise StopIteration
+                    break
 
             yield (key, value)
 
