@@ -1,2 +1,23 @@
 [build-system]
 requires = ["setuptools", "wheel", "cython"]
+
+[project]
+name = "sophy"
+version = "0.6.5"
+description = "fast bindings for the sophia database"
+readme = "README.md"
+authors = [
+    { name = "Charles Leifer", email = "coleifer@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 2",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Repository = "https://github.com/coleifer/sophy"
+Documentation = "https://sophy.readthedocs.io/"
+
+[tool.setuptools]
+py-modules = ["sophy"]

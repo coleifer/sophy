@@ -55,7 +55,6 @@ can install from [GitHub](https://github.com/coleifer/sophy) or from
 Pip instructions:
 
 ```console
-$ pip install Cython
 $ pip install sophy
 ```
 
