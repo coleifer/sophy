@@ -968,6 +968,29 @@ class TestErrorChecking(BaseTestCase):
         self.assertFalse('k3' in self.db)
 
 
+class TestOperations(BaseTestCase):
+    def test_operation_not_buffered(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+
+        nfiles = self.env.log_files
+        self.env.log_rotate()
+        self.assertEqual(self.env.log_files, nfiles + 1)
+
+        # The rotate is a one-shot operation and is not re-applied when the
+        # env is re-opened (previously this broke re-opening entirely, as
+        # the operation was replayed before the WAL was initialized).
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+        self.assertEqual(self.env['main']['k1'], 'v1')
+
+    def test_operation_requires_open_env(self):
+        self.assertTrue(self.env.close())
+        self.assertRaises(SophiaError, self.env.log_rotate)
+        self.assertRaises(SophiaError, self.env.backup_run)
+        self.assertTrue(self.env.open())
+
+
 class TestInt64Configuration(unittest.TestCase):
     def setUp(self):
         cleanup()

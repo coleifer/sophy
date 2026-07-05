@@ -139,6 +139,13 @@ cdef class Configuration(object):
             self._set(bkey, value)
         self.settings[bkey] = value
 
+    def run_operation(self, key):
+        # One-shot operations (e.g. backup.run, log.rotate) are applied
+        # immediately and never buffered in the settings dict, as re-applying
+        # them when the environment is re-opened is incorrect.
+        check_open(self.env)
+        self._set(encode(key), 0)
+
     def get_option(self, key, is_string=True):
         check_open(self.env)
         cdef bytes bkey = encode(key)
@@ -186,7 +193,7 @@ def __config_ro__(name, is_string=False):
 
 def __operation__(name):
     def _method(self):
-        self.config.set_option(name, 0)
+        self.config.run_operation(name)
     return _method
 
 def __dbconfig__(name, is_string=False, is_readonly=False):
