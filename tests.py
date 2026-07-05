@@ -968,6 +968,124 @@ class TestErrorChecking(BaseTestCase):
         self.assertFalse('k3' in self.db)
 
 
+class TestCursorLifecycle(BaseTestCase):
+    databases = (
+        ('main', Schema(StringIndex('key'), StringIndex('value'))),
+        ('nums', Schema(U32Index('key'), StringIndex('value'))),
+    )
+
+    def test_next_without_iter(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+
+        # Calling next() on a cursor that was never started raises rather
+        # than dereferencing a NULL document.
+        self.assertRaises(StopIteration, next, db.cursor())
+
+    def test_next_after_exhausted(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+
+        curs = iter(db.cursor())
+        self.assertEqual(list(curs), [('k1', 'v1')])
+        self.assertRaises(StopIteration, next, curs)
+        self.assertRaises(StopIteration, next, curs)
+
+    def test_next_after_close(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+        db['k2'] = 'v2'
+
+        curs = iter(db.cursor())
+        self.assertEqual(next(curs), ('k1', 'v1'))
+        self.assertTrue(self.env.close())
+        self.assertRaises(SophiaError, next, curs)
+        self.assertTrue(self.env.open())
+
+    def test_cursor_across_reopen(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+        db['k2'] = 'v2'
+
+        curs = iter(db.cursor())
+        self.assertEqual(next(curs), ('k1', 'v1'))
+
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+
+        # The stale handle cannot be advanced, but the cursor object can be
+        # re-iterated against the new environment, and deallocating it does
+        # not touch the dead handle.
+        self.assertRaises(SophiaError, next, curs)
+        self.assertEqual(list(iter(curs)), [('k1', 'v1'), ('k2', 'v2')])
+        del curs
+
+    def test_txn_across_reopen(self):
+        db = self.env['main']
+        txn = self.env.transaction().begin()
+        txn[db]['k1'] = 'v1'
+
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+
+        # The transaction died with the environment; nothing was committed.
+        self.assertRaises(SophiaError, txn.commit)
+        self.assertRaises(SophiaError, txn[db].set, 'k2', 'v2')
+        self.assertFalse('k1' in db)
+
+        # It can be restarted against the new environment.
+        txn.begin()
+        txn[db]['k3'] = 'v3'
+        txn.commit(begin=False)
+        self.assertEqual(db['k3'], 'v3')
+
+    def test_prefix_requires_string_key(self):
+        nums = self.env['nums']
+        nums[1] = 'v1'
+
+        # Sophia only supports prefix search on a leading string key; the
+        # error is raised eagerly instead of yielding an empty result.
+        self.assertRaises(SophiaError, nums.cursor, prefix='x')
+
+        # Non-prefix cursors on int keys are unaffected, as are prefix
+        # cursors on string keys.
+        self.assertEqual(list(nums.cursor()), [(1, 'v1')])
+        db = self.env['main']
+        db['ka'] = '1'
+        db['xb'] = '2'
+        self.assertEqual(list(db.cursor(prefix='k')), [('ka', '1')])
+
+    def test_txn_update_stays_in_txn(self):
+        db = self.env['main']
+        with self.env.transaction() as txn:
+            tdb = txn[db]
+            tdb.update(k1='v1', k2='v2')
+            tdb.multi_set({'k3': 'v3'})
+
+            # Changes are visible within the transaction...
+            self.assertEqual(tdb['k1'], 'v1')
+            txn.rollback()
+
+        # ...but they shared the transaction's fate on rollback.
+        self.assertFalse('k1' in db)
+        self.assertFalse('k2' in db)
+        self.assertFalse('k3' in db)
+
+        with self.env.transaction() as txn:
+            txn[db].update(k4='v4')
+        self.assertEqual(db['k4'], 'v4')
+
+    def test_txn_dealloc_across_reopen(self):
+        db = self.env['main']
+        txn = self.env.transaction().begin()
+        txn[db]['k1'] = 'v1'
+
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+        del txn  # Must not destroy the stale handle.
+        self.assertFalse('k1' in db)
+
+
 class TestOperations(BaseTestCase):
     def test_operation_not_buffered(self):
         db = self.env['main']
@@ -991,7 +1109,7 @@ class TestOperations(BaseTestCase):
         self.assertTrue(self.env.open())
 
 
-class TestInt64Configuration(unittest.TestCase):
+class TestConfigOptions(unittest.TestCase):
     def setUp(self):
         cleanup()
         self.env = Sophia(TEST_DIR)
@@ -999,6 +1117,26 @@ class TestInt64Configuration(unittest.TestCase):
     def tearDown(self):
         self.env.close()
         cleanup()
+
+    def test_bytes_option_value(self):
+        db = self.env.add_database('main', Schema.key_value())
+        db.compression = b'zstd'
+        self.assertTrue(self.env.open())
+        self.assertEqual(db.compression, 'zstd')
+
+    def test_clear_option_after_failed_open(self):
+        self.env.add_database('main', Schema.key_value())
+        self.env.config.set_option('bogus.setting', 1)
+        self.assertRaises(SophiaError, self.env.open)
+
+        # A failed open() cleans up after itself; clearing the bad setting
+        # makes the environment usable again.
+        self.env.config.clear_option('bogus.setting')
+        self.env.config.clear_option('bogus.setting')  # Idempotent.
+        self.assertTrue(self.env.open())
+        db = self.env['main']
+        db['k1'] = 'v1'
+        self.assertEqual(db['k1'], 'v1')
 
     def test_int64_option(self):
         # Node-size requires more than 32 bits to represent.

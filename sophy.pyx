@@ -127,10 +127,11 @@ cdef class Configuration(object):
 
         if isinstance(value, bool):
             value = value and 1 or 0
-        elif isinstance(value, basestring):
+        elif isinstance(value, (bytes, basestring)):
             value = encode(value)
         elif not isinstance(value, int):
-            raise ValueError('Setting value must be bool, int or string.')
+            raise ValueError('Setting value must be bool, int, bytes or '
+                             'string.')
 
         # Apply the setting before storing it, so that an invalid setting
         # does not poison the buffered settings (which are re-applied every
@@ -154,11 +155,10 @@ cdef class Configuration(object):
         else:
             return sp_getint(self.env.env, <const char *>bkey)
 
-    cdef clear_option(self, key):
-        try:
-            del self.settings[encode(key)]
-        except KeyError:
-            pass
+    def clear_option(self, key):
+        # Remove a buffered setting so it is no longer applied when the
+        # environment is opened. Clearing is idempotent.
+        self.settings.pop(encode(key), None)
 
     cdef int _set(self, key, value) except -1:
         cdef int rc
@@ -221,10 +221,16 @@ cdef class Sophia(object):
         dict database_lookup
         list databases
         readonly unicode path
+        # Incremented every time the environment is closed. Transactions and
+        # cursors record the generation their handle was created under, so
+        # that a handle from a destroyed environment is never used or
+        # destroyed after the environment is re-opened.
+        uint64_t generation
         void *env
 
     def __cinit__(self):
         self.env = <void *>0
+        self.generation = 0
 
     def __init__(self, path):
         self.config = Configuration(self)
@@ -290,15 +296,21 @@ cdef class Sophia(object):
         cdef Database db
 
         self.env = sp_env()
-        self.set_string(b'sophia.path', <const char *>self.bpath)
+        try:
+            self.set_string(b'sophia.path', <const char *>self.bpath)
 
-        for db in self.databases:
-            self.configure_database(db)
+            for db in self.databases:
+                self.configure_database(db)
 
-        self.config.configure()
+            self.config.configure()
 
-        cdef int rc = sp_open(self.env)
-        _check(self.env, rc)
+            _check(self.env, sp_open(self.env))
+        except:
+            # Destroy the partially-configured environment so that a failed
+            # open() neither leaks it nor prevents a subsequent open().
+            sp_destroy(self.env)
+            self.env = <void *>0
+            raise
 
         self.is_open = True
         return self.is_open
@@ -307,6 +319,7 @@ cdef class Sophia(object):
         if not self.is_open or not self.env:
             return False
         self.is_open = False
+        self.generation += 1
         sp_destroy(self.env)
         self.env = <void *>0
         return True
@@ -369,14 +382,17 @@ cdef class Sophia(object):
 cdef class Transaction(object):
     cdef:
         Sophia env
+        uint64_t generation
         void *txn
 
     def __cinit__(self, Sophia env):
         self.env = env
+        self.generation = 0
         self.txn = <void *>0
 
     def __dealloc__(self):
-        if self.env.is_open and self.txn:
+        if self.env.is_open and self.txn and \
+                self.generation == self.env.generation:
             sp_destroy(self.txn)
 
     cdef _reset(self, bint begin):
@@ -384,12 +400,21 @@ cdef class Transaction(object):
         if begin:
             self.begin()
 
+    cdef check_generation(self):
+        # The handle of a transaction that was open when the environment
+        # was closed died with the environment.
+        if self.generation != self.env.generation:
+            self.txn = <void *>0
+            raise SophiaError('Transaction was invalidated when its '
+                              'environment was closed.')
+
     def begin(self):
         check_open(self.env)
-        if self.txn:
+        if self.txn and self.generation == self.env.generation:
             raise SophiaError('This transaction has already been started.')
 
         self.txn = sp_begin(self.env.env)
+        self.generation = self.env.generation
         return self
 
     def commit(self, begin=True):
@@ -397,6 +422,7 @@ cdef class Transaction(object):
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '
                               'commit.')
+        self.check_generation()
 
         cdef int rc = sp_commit(self.txn)
         if rc == 1:
@@ -414,6 +440,7 @@ cdef class Transaction(object):
         if not self.txn:
             raise SophiaError('Transaction is not currently open. Cannot '
                               'rollback.')
+        self.check_generation()
         sp_destroy(self.txn)
         self._reset(begin)
 
@@ -1058,9 +1085,19 @@ cdef class DatabaseTransaction(Database):
         self.db = db.db
 
     cdef void *_get_target(self) except NULL:
-        if not self.transaction.txn:
+        if not self.transaction.txn or \
+                self.transaction.generation != self.env.generation:
             raise SophiaError('Transaction is not active.')
         return self.transaction.txn
+
+    def update(self, dict _data=None, **kwargs):
+        # Unlike Database.update(), which wraps the writes in their own
+        # transaction, writes join the enclosing transaction and share its
+        # commit/rollback fate.
+        check_open(self.env)
+        self._update(_data, kwargs)
+
+    multi_set = update
 
 
 @cython.freelist(32)
@@ -1073,6 +1110,7 @@ cdef class Cursor(object):
         readonly bytes order
         readonly bytes prefix
         readonly key
+        uint64_t generation
         void *cursor
 
     def __cinit__(self, Database db, order='>=', key=None, prefix=None,
@@ -1082,16 +1120,21 @@ cdef class Cursor(object):
         if key is not None:
             self.key = (key,) if not isinstance(key, tuple) else key
         self.prefix = encode(prefix) if prefix else None
+        if self.prefix is not None and \
+                (<BaseIndex>db.schema.key[0]).data_type != SCHEMA_STRING:
+            # Sophia reports this error lazily, in a way that is otherwise
+            # indistinguishable from an empty result-set.
+            raise SophiaError('prefix search is only supported when the '
+                              'first key part is a string.')
         self.keys = keys
         self.values = values
         self.current_item = None
+        self.generation = 0
         self.cursor = <void *>0
 
     def __dealloc__(self):
-        if not self.db.env.is_open:
-            return
-
-        if self.cursor:
+        if self.db.env.is_open and self.cursor and \
+                self.generation == self.db.env.generation:
             sp_destroy(self.cursor)
 
     def __iter__(self):
@@ -1099,10 +1142,14 @@ cdef class Cursor(object):
 
         check_open(self.db.env)
         if self.cursor:
-            sp_destroy(self.cursor)
+            # Only destroy the previous cursor handle if it belongs to the
+            # current incarnation of the environment.
+            if self.generation == self.db.env.generation:
+                sp_destroy(self.cursor)
             self.cursor = <void *>0
 
         self.cursor = sp_cursor(self.db.env.env)
+        self.generation = self.db.env.generation
         handle = sp_document(self.db.db)
         self.current_item = create_document(handle)
         try:
@@ -1126,6 +1173,17 @@ cdef class Cursor(object):
         return self
 
     def __next__(self):
+        # The cursor is NULL if iteration never started or is exhausted.
+        if not self.cursor:
+            raise StopIteration
+        check_open(self.db.env)
+        if self.generation != self.db.env.generation:
+            # The handle died with the environment it was created under.
+            # Re-iterating will create a fresh cursor.
+            self.cursor = <void *>0
+            raise SophiaError('Cursor was invalidated when its environment '
+                              'was closed.')
+
         cdef void *handle = sp_get(self.cursor, self.current_item.handle)
         if not handle:
             sp_destroy(self.cursor)
