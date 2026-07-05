@@ -15,13 +15,12 @@ Python binding for `sophia <http://sophia.systems>`_ embedded database, v2.2.
 * Written in Cython for speed and low-overhead
 * Clean, memorable APIs
 * Comprehensive support for Sophia's features
-* Supports Python 2 and 3.
 * No 3rd-party dependencies besides Cython (for building).
 
 About Sophia:
 
 * Ordered key/value store
-* Keys and values can be composed of multiple fieldsdata-types
+* Keys and values can be composed of multiple fields of differing data-types
 * ACID transactions
 * MVCC, optimistic, non-blocking concurrency with multiple readers and writers.
 * Multiple databases per environment

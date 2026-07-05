@@ -92,7 +92,7 @@ method. Multiple items can be retrieved or deleted efficiently using
 .. code-block:: pycon
 
     >>> db.update(k1='v1', k2='v2', k3='v3')
-    >>> for value in db.multi_get('k1', 'k3', 'kx'):
+    >>> for value in db.multi_get(['k1', 'k3', 'kx']):
     ...     print(value)
 
     v1
@@ -102,7 +102,7 @@ method. Multiple items can be retrieved or deleted efficiently using
     >>> db.multi_get_dict(['k1', 'k3', 'kx'])
     {'k1': 'v1', 'k3': 'v3'}
 
-    >>> db.multi_delete('k1', 'k3', 'kx')
+    >>> db.multi_delete(['k1', 'k3', 'kx'])
     >>> 'k1' in db
     False
 
@@ -209,7 +209,8 @@ The :py:meth:`~Database.cursor` method accepts five parameters:
 * ``order`` (default=``>=``) - semantics for matching the start key and
   ordering results.
 * ``key`` - the start key
-* ``prefix`` - search for prefix matches
+* ``prefix`` - search for prefix matches. Requires that the first key part be
+  a string data-type.
 * ``keys`` - (default=``True``) -- return keys while iterating
 * ``values`` - (default=``True``) -- return values while iterating
 
@@ -250,12 +251,13 @@ Example of using :py:meth:`Sophia.transaction`:
             # Transfer the asset by updating the respective balances. Note that we
             # are operating on the wrapper database, not the db instance.
             from_bal = txn_acct_bal[from_acct]
-            txn_acct_bal[to_account] = from_bal + amount
-            txn_acct_bal[from_account] = from_bal - amount
+            to_bal = txn_acct_bal[to_acct]
+            txn_acct_bal[to_acct] = to_bal + amount
+            txn_acct_bal[from_acct] = from_bal - amount
 
             # Log the transaction in the transaction_log database. Again, we use
             # the wrapper for the database:
-            txn_log[from_account, to_account, get_timestamp()] = amount
+            txn_log[from_acct, to_acct, get_timestamp()] = amount
 
 Multiple transactions are allowed to be open at the same time, but if there are
 conflicting changes, an exception will be thrown when attempting to commit the
@@ -284,14 +286,14 @@ offending transaction:
     >>> txn2.commit()  # ERROR !!
     SophiaError
     ...
-    SophiaError('transaction is not finished, waiting for concurrent transaction to finish.')
+    SophiaError('transaction is not finished, waiting for a concurrent transaction to finish.')
 
     >>> txn.commit()  # OK
 
     >>> txn2.commit()  # Retry committing 2nd transaction. ERROR !!
     SophiaError
     ...
-    SophiaError('transasction rolled back by another concurrent transaction.')
+    SophiaError('transaction was rolled back by another concurrent transaction.')
 
 Sophia detected a conflict and rolled-back the 2nd transaction.
 
@@ -425,7 +427,7 @@ list of available settings.
 Backups
 -------
 
-Sophia can create a backup the database while it is running. To configure
+Sophia can create a backup of the database while it is running. To configure
 backups, you will need to set the path for backups before opening the
 environment:
 

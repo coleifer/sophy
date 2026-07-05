@@ -10,14 +10,13 @@
 * Written in Cython for speed and low-overhead
 * Clean, memorable APIs
 * Extensive support for Sophia's features
-* Python 2 **and** Python 3 support
 * No 3rd-party dependencies besides Cython
 * [Documentation on readthedocs](http://sophy.readthedocs.io/en/latest/)
 
 #### About Sophia
 
 * Ordered key/value store
-* Keys and values can be composed of multiple fieldsdata-types
+* Keys and values can be composed of multiple fields of differing data-types
 * ACID transactions
 * MVCC, optimistic, non-blocking concurrency with multiple readers and writers.
 * Multiple databases per environment
@@ -131,14 +130,14 @@ Sophy databases use the familiar `dict` APIs for CRUD operations:
 
 db['name'] = 'Huey'
 db['animal_type'] = 'cat'
-print db['name'], 'is a', db['animal_type']  # Huey is a cat
+print(db['name'], 'is a', db['animal_type'])  # Huey is a cat
 
 'name' in db  # True
 'color' in db  # False
 
 db['temp_val'] = 'foo'
 del db['temp_val']
-print db['temp_val']  # raises a KeyError.
+print(db['temp_val'])  # raises a KeyError.
 ```
 
 Use `update()` for bulk-insert, and `multi_get()` for bulk-fetch. Unlike
@@ -148,8 +147,8 @@ an exception and return `None` instead.
 ```python
 db.update(k1='v1', k2='v2', k3='v3')
 
-for value in db.multi_get('k1', 'k3', 'kx'):
-    print value
+for value in db.multi_get(['k1', 'k3', 'kx']):
+    print(value)
 # v1
 # v3
 # None
@@ -332,13 +331,14 @@ t2_kv = txn2[kv]
 t2_kv['k1'] = 'v1-x'
 
 txn2.commit()  # ERROR !!
-# SophiaError('txn is not finished, waiting for concurrent txn to finish.')
+# SophiaError('transaction is not finished, waiting for a concurrent
+#              transaction to finish.')
 
 txn.commit()  # OK
 
 # Try again?
 txn2.commit()  # ERROR !!
-# SophiaError('transasction rolled back by another concurrent transaction.')
+# SophiaError('transaction was rolled back by another concurrent transaction.')
 ```
 
 ## Index types, multi-field keys and values

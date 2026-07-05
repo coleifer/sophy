@@ -34,10 +34,9 @@ can be obtained and installed:
 
 .. code-block:: bash
 
-    $ git clone https://github.com/colefer/sophy
+    $ git clone https://github.com/coleifer/sophy
     $ cd sophy
-    $ python setup.py build
-    $ python setup.py install
+    $ pip install .
 
 Running the tests
 -----------------

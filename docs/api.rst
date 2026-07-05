@@ -31,7 +31,7 @@ Environment
         # Schema describes the indexes that comprise the key and value portions
         # of a database.
         kv_schema = Schema([StringIndex('key')], [StringIndex('value')])
-        db = env.add_data('kv', kv_schema)
+        db = env.add_database('kv', kv_schema)
 
         # We need to open the env after configuring the database(s), in order
         # to read/write data.
@@ -90,7 +90,7 @@ Environment
         :param str name: database name
 
         Remove a database from the environment. Environment must be closed to
-        remove databases. This method does really not have any practical value
+        remove databases. This method does not really have any practical value
         but is provided for consistency.
 
     .. py:method:: get_database(name)
@@ -187,7 +187,7 @@ Database
             # Set new value in composite db. Note the key is a tuple and, since
             # the value is serialized using msgpack, we can transparently store
             # data-types like dicts.
-            composite_db.set((current_time, 'evt_type'), {'msg': 'foo'})
+            composite_db.set((current_time(), 'evt_type'), {'msg': 'foo'})
 
     .. py:method:: get(key[, default=None])
 
@@ -236,17 +236,21 @@ Database
         Return whether the given key exists. If a multi-part key is defined for
         the given database, the key must be a tuple.
 
-    .. py:method:: multi_set([__data=None[, **kwargs]])
+    .. py:method:: update([_data=None[, **kwargs]])
 
-        :param dict __data: Dictionary of key/value pairs to set.
+        :param dict _data: Dictionary of key/value pairs to set.
         :param kwargs: Specify key/value pairs as keyword-arguments.
         :return: No return value
 
-        Set multiple key/value pairs efficiently.
+        Set multiple key/value pairs atomically, in a single transaction.
 
-    .. py:method:: multi_get(*keys)
+    .. py:method:: multi_set([_data=None[, **kwargs]])
 
-        :param keys: key(s) to retrieve
+        Alias for :py:meth:`~Database.update`.
+
+    .. py:method:: multi_get(keys)
+
+        :param list keys: list of keys to fetch
         :return: a list of values associated with the given keys. If a key does
             not exist a ``None`` will be indicated for the value.
         :rtype: list
@@ -260,15 +264,15 @@ Database
         .. code-block:: python
 
             db.update(k1='v1', k2='v2', k3='v3')
-            db.multi_get('k1', 'k3', 'k-nothere')
+            db.multi_get(['k1', 'k3', 'k-nothere'])
             # ['v1', 'v3', None]
 
     .. py:method:: multi_get_dict(keys)
 
-        :param list keys: list of keys to get
-        :return: a list of values associated with the given keys. If a key does
-            not exist a ``None`` will be indicated for the value.
-        :rtype: list
+        :param list keys: list of keys to fetch
+        :return: a dict of key/value pairs for the keys that exist. Missing
+            keys are not represented in the returned dict.
+        :rtype: dict
 
         Get multiple values efficiently. Returned as a dict of key/value pairs.
         Missing values are not represented in the returned dict.
@@ -281,9 +285,9 @@ Database
             db.multi_get_dict(['k1', 'k3', 'k-nothere'])
             # {'k1': 'v1', 'k3': 'v3'}
 
-    .. py:method:: multi_delete(*keys)
+    .. py:method:: multi_delete(keys)
 
-        :param keys: key(s) to delete
+        :param list keys: list of keys to delete
         :return: No return value
 
         Efficiently delete multiple keys.
@@ -360,6 +364,9 @@ Database
         cursor to yield a 2-tuple consisting of ``(key, value)`` during
         iteration.
 
+        Prefix matching is only supported when the first key part is a string
+        data-type, e.g. :py:class:`StringIndex` or :py:class:`BytesIndex`.
+
 
 Transaction
 -----------
@@ -395,8 +402,9 @@ Transaction
 
         Begin a transaction.
 
-    .. py:method:: commit()
+    .. py:method:: commit([begin=True])
 
+        :param bool begin: begin a new transaction after committing.
         :raises: SophiaError
 
         Commit all changes. An exception can occur if:
@@ -406,8 +414,13 @@ Transaction
            transaction. **Not recoverable**.
         2. A concurrent transaction is open and must be committed before this
            transaction can commit.  **Possibly recoverable**.
+        3. The environment was closed while the transaction was open, which
+           invalidates the transaction. **Not recoverable**, though calling
+           :py:meth:`~Transaction.begin` will start a fresh transaction.
 
-    .. py:method:: rollback()
+    .. py:method:: rollback([begin=True])
+
+        :param bool begin: begin a new transaction after rolling-back.
 
         Roll-back any changes made in the transaction.
 
@@ -555,7 +568,8 @@ Schema Definition
 .. py:class:: U16Index(name)
 .. py:class:: U8Index(name)
 
-    Store unsigned integers of the given sizes.
+    Store unsigned integers of the given sizes. The full unsigned range is
+    supported, so a :py:class:`U64Index` can store values up to ``2**64 - 1``.
 
 .. py:class:: U64RevIndex(name)
 .. py:class:: U32RevIndex(name)
@@ -578,13 +592,65 @@ Cursor
     Cursors are iterable and, depending how they were configured, can return
     keys, values or key/value pairs.
 
+    Closing the environment invalidates any open cursors. Attempting to
+    advance an invalidated cursor raises a :py:class:`SophiaError`, but once
+    the environment is re-opened the cursor can be iterated again from the
+    start.
+
 .. _settings:
 
 Settings
 --------
 
 Sophia supports a wide range of settings and configuration options. These
-settings are also documented in the `Sophia documentation <http://sophia.systems/v2.2/conf/log.html>`_.
+settings are also documented in the `Sophia documentation <http://sophia.systems/v2.2/>`_.
+
+Most settings are exposed as properties on :py:class:`Sophia` or
+:py:class:`Database` and are listed in the tables below. Settings whose type
+is listed as *method* are one-shot operations. They run immediately and
+require that the environment is open.
+
+Settings can also be read and written by name using the
+:py:class:`Configuration` helper, which is available as the ``config``
+attribute on :py:class:`Sophia`:
+
+.. code-block:: pycon
+
+    >>> env.config.get_option('sophia.status')
+    'online'
+
+.. py:class:: Configuration(env)
+
+    Provides read/write access to the environment configuration by option
+    name. This object is not created directly, but is available as
+    ``Sophia.config``.
+
+    .. py:method:: set_option(key, value)
+
+        :param str key: option name, e.g. "db.events.compression".
+        :param value: a bool, int, bytes or string value.
+
+        Set the given option. If the environment is open the setting is
+        applied immediately. Settings are buffered and re-applied whenever
+        the environment is re-opened.
+
+    .. py:method:: get_option(key, is_string=True)
+
+        :param str key: option name.
+        :param bool is_string: treat the value as a string (otherwise the
+            value is treated as an integer).
+        :return: the current value of the given option.
+
+        Read the current value of the given option. The environment must be
+        open.
+
+    .. py:method:: clear_option(key)
+
+        :param str key: option name.
+
+        Remove a buffered setting so it is no longer applied when the
+        environment is opened. Useful if a bad setting is preventing
+        :py:meth:`Sophia.open` from succeeding.
 
 Environment settings
 ^^^^^^^^^^^^^^^^^^^^
@@ -713,7 +779,7 @@ stat_cursor                     int, ro       Total number of cursor operations
 stat_cursor_latency             string, ro    Average cursor latency
 stat_cursor_read_disk           string, ro    Average disk reads by Cursor operation
 stat_cursor_read_cache          string, ro    Average cache reads by Cursor operation
-stat_cursor_ops                 string, io    Average number of keys read by Cursor operation
+stat_cursor_ops                 string, ro    Average number of keys read by Cursor operation
 ------------------------------- ------------- ---------------------------------------------------
 **Scheduler**
 ------------------------------- ------------- ---------------------------------------------------
