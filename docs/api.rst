@@ -396,7 +396,7 @@ Transaction
         # At the end of the wrapped block, the transaction is committed.
         # The writes have been recorded:
         print(db['k1'], db['k3'])
-        # ('v1', 'v3')
+        # v1 v3
 
     .. py:method:: begin()
 

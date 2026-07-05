@@ -370,7 +370,7 @@ To retrieve our data:
 .. code-block:: pycon
 
     >>> address_book['kitty', 'huey', 66604]
-    '123 Meow St.'
+    '123 Meow St'
 
 To delete a row:
 
@@ -402,14 +402,21 @@ property, which is a readonly setting returning a string:
     >>> print(env.status)
     online
 
-Other properties can be changed by assigning a new value to the property. For
-example, to read and then increase the number of threads used by the scheduler:
+Other properties can be changed by assigning a new value to the property. Some
+settings, like ``scheduler_threads``, can only be changed while the environment
+is closed:
 
 .. code-block:: pycon
 
     >>> env.scheduler_threads
     6
+    >>> env.close()
+    True
     >>> env.scheduler_threads = 8
+    >>> env.open()
+    True
+    >>> env.scheduler_threads
+    8
 
 Database-specific properties are available as well. For example to get the
 number of GET and SET operations performed on a database, you would write:

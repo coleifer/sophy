@@ -193,10 +193,10 @@ not-yet-merged duplicates.
 ```python
 
 print(len(db))
-# 4
+# 3
 
 print(db.index_count)
-# 4
+# 3
 ```
 
 ### Fetching ranges
@@ -239,7 +239,7 @@ can pass in `True` as the `step` value of the slice to also indicate reverse:
 ```python
 
 db[:'k2':True]
-# [('k2', 'k1'), ('k1', 'v1')]
+# [('k2', 'v2'), ('k1', 'v1')]
 
 db['k3'::True]
 # [('k4', 'v4'), ('k3', 'v3')]
@@ -272,7 +272,7 @@ iterating. To retrieve a particular slice of time, a prefix could be specified:
 # Iterate over events for July, 2017:
 for timestamp, event_data in db.cursor(key='2017-07-01T00:00:00',
                                        prefix='2017-07-'):
-    do_something()
+    process_event(timestamp, event_data)
 ```
 
 ### Transactions
@@ -299,12 +299,13 @@ def transfer_funds(from_acct, to_acct, amount):
         # Transfer the asset by updating the respective balances. Note that we
         # are operating on the wrapper database, not the db instance.
         from_bal = txn_acct_bal[from_acct]
-        txn_acct_bal[to_account] = from_bal + amount
-        txn_acct_bal[from_account] = from_bal - amount
+        to_bal = txn_acct_bal[to_acct]
+        txn_acct_bal[to_acct] = to_bal + amount
+        txn_acct_bal[from_acct] = from_bal - amount
 
         # Log the transaction in the transaction_log database. Again, we use
         # the wrapper for the database:
-        txn_log[from_account, to_account, get_timestamp()] = amount
+        txn_log[from_acct, to_acct, get_timestamp()] = amount
 ```
 
 Multiple transactions are allowed to be open at the same time, but if there are
@@ -424,15 +425,21 @@ is a readonly setting returning a string:
 
 ```python
 print(env.status)
-"online"
+# online
 ```
 
 Other properties can be changed by assigning a new value to the property. For
 example, to read and then increase the number of threads used by the scheduler:
 
 ```python
+# Read the current number of scheduler threads.
 nthreads = env.scheduler_threads
-env.scheduler_threads = nthread + 2
+
+# Some settings, like scheduler_threads, can only be changed while the
+# environment is closed.
+env.close()
+env.scheduler_threads = nthreads + 2
+env.open()
 ```
 
 Database-specific properties are available as well. For example to get the
