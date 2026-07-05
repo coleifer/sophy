@@ -990,6 +990,20 @@ cdef class Database(object):
             if isinstance(stop, tuple):
                 stop = stop[0]
 
+        # Normalize the start- and stop-keys up-front so that we never
+        # compare bytes <-> unicode, neither when detecting the direction
+        # below nor when detecting whether to stop iterating.
+        if self.schema.multi_key:
+            if start is not None:
+                start = normalize_tuple(self.schema, start)
+            if stop is not None:
+                stop = normalize_tuple(self.schema, stop)
+        else:
+            if start is not None:
+                start = normalize_value(self.schema, start)
+            if stop is not None:
+                stop = normalize_value(self.schema, stop)
+
         if reverse:
             if (first and not last) or (last and not first):
                 start, stop = stop, start
@@ -997,14 +1011,6 @@ cdef class Database(object):
                 start, stop = stop, start
         elif (not first and not last) and (start > stop):
             reverse = True
-
-        # We need to normalize the stop key to avoid invalid comparisons
-        # between bytes <-> unicode when detecting whether to stop iterating.
-        if stop is not None:
-            if self.schema.multi_key:
-                stop = normalize_tuple(self.schema, stop)
-            else:
-                stop = normalize_value(self.schema, stop)
 
         order = '<=' if reverse else '>='
         cursor = self.cursor(order=order, key=start)

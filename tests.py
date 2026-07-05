@@ -333,6 +333,8 @@ class TestGetRangeNormalizeValues(BaseTestCase):
 
             assertRange(db, 'k2', 'k45', [2, 3, 4])
             assertRange(db, b'k2', b'k45', [2, 3, 4])
+            assertRange(db, b'k2', 'k45', [2, 3, 4])
+            assertRange(db, 'k45', b'k2', [4, 3, 2])
 
     def test_get_range_normalized_multi(self):
         def assertRange(db, start, stop, exp):
@@ -347,6 +349,8 @@ class TestGetRangeNormalizeValues(BaseTestCase):
             assertRange(db, (b'k2', b'x2'), (b'k45', b'x45'), [2, 3, 4])
             assertRange(db, (b'k2', 'x2'), (b'k45', 'x45'), [2, 3, 4])
             assertRange(db, ('k2', b'x2'), ('k45', b'x45'), [2, 3, 4])
+            assertRange(db, (b'k2', b'x2'), ('k45', 'x45'), [2, 3, 4])
+            assertRange(db, ('k45', 'x45'), (b'k2', b'x2'), [4, 3, 2])
 
 
 class TestValidation(BaseTestCase):
