@@ -736,7 +736,7 @@ class TestEventSchema(BaseTestCase):
             (ts(4), 'info')])
 
 
-class TestMultiKeyValue(BaseTestCase):
+class TestMultiKeyIntValue(BaseTestCase):
     databases = (
         ('main',
          Schema([U32Index('a'), U32Index('b'), U32Index('c')],
@@ -747,7 +747,7 @@ class TestMultiKeyValue(BaseTestCase):
     )
 
     def setUp(self):
-        super(TestMultiKeyValue, self).setUp()
+        super(TestMultiKeyIntValue, self).setUp()
         self.db = self.env['main']
 
     def test_cursor_ops(self):
@@ -909,6 +909,164 @@ class TestSerializedIndexImplementations(BaseTestCase):
 
         keys = list(db.keys())
         self.assertEqual(set(keys), set((u1, u2)))
+
+
+class TestErrorChecking(BaseTestCase):
+    def setUp(self):
+        cleanup()
+        self.env = self.create_env()
+        self.db = self.env.add_database('main', Schema.key_value())
+        self.db.limit_field = 64  # Value fields limited to 64 bytes.
+        assert self.env.open()
+
+    def test_field_size_limit(self):
+        self.db['k1'] = 'x' * 32
+        self.assertEqual(self.db['k1'], 'x' * 32)
+
+        # The error message embeds the field value and may be truncated by
+        # sophia's error buffer, so just check the stable prefix.
+        with self.assertRaises(SophiaError) as ctx:
+            self.db['k2'] = 'x' * 128
+        self.assertTrue("field 'x" in str(ctx.exception))
+
+        # Nothing was written and the database remains usable.
+        self.assertFalse(self.db.exists('k2'))
+        self.db['k3'] = 'v3'
+        self.assertEqual(self.db['k3'], 'v3')
+
+    def test_field_size_limit_txn(self):
+        with self.assertRaises(SophiaError):
+            with self.env.transaction() as txn:
+                txn[self.db]['k1'] = 'x' * 128
+
+        self.assertFalse(self.db.exists('k1'))
+
+    def test_bad_cursor_order(self):
+        self.db['k1'] = 'v1'
+        self.assertRaises(SophiaError,
+                          lambda: list(self.db.cursor(order='<>')))
+
+        # A well-formed cursor still works afterwards.
+        self.assertEqual(list(self.db.cursor()), [('k1', 'v1')])
+
+    def test_inactive_transaction(self):
+        self.db['k1'] = 'v1'
+        txn = self.env.transaction().begin()
+        tdb = txn[self.db]
+        tdb['k2'] = 'v2'
+        txn.commit(begin=False)
+
+        # The transaction is no longer active, so operations that would
+        # target it raise cleanly.
+        self.assertRaises(SophiaError, tdb.set, 'k3', 'v3')
+        self.assertRaises(SophiaError, tdb.get, 'k1')
+        self.assertRaises(SophiaError, tdb.delete, 'k1')
+        self.assertRaises(SophiaError, tdb.exists, 'k1')
+
+        # Committed data is present, the failed operations changed nothing.
+        self.assertEqual(self.db['k2'], 'v2')
+        self.assertFalse('k3' in self.db)
+
+
+class TestInt64Configuration(unittest.TestCase):
+    def setUp(self):
+        cleanup()
+        self.env = Sophia(TEST_DIR)
+
+    def tearDown(self):
+        self.env.close()
+        cleanup()
+
+    def test_int64_option(self):
+        # Node-size requires more than 32 bits to represent.
+        node_size = 8 * 1024 * 1024 * 1024
+        db = self.env.add_database('main', Schema.key_value())
+        db.compaction_node_size = node_size
+        self.assertTrue(self.env.open())
+        self.assertEqual(db.compaction_node_size, node_size)
+
+    def test_invalid_option(self):
+        self.env.add_database('main', Schema.key_value())
+        self.assertTrue(self.env.open())
+        self.assertRaises(SophiaError, self.env.config.set_option,
+                          'does.not.exist', 3)
+
+        # The failed setting was not buffered, so the environment can be
+        # closed and re-opened without issue.
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+
+
+class TestFalsyBoundaries(BaseTestCase):
+    databases = (
+        ('nums', Schema(U32Index('key'), U32Index('value'))),
+        ('strs', Schema(StringIndex('key'), StringIndex('value'))),
+    )
+
+    def test_zero_stop_key(self):
+        db = self.env['nums']
+        for i in range(5):
+            db[i] = i * 10
+
+        self.assertEqual(list(db[:0]), [(0, 0)])
+        self.assertEqual(list(db.get_range(stop=0)), [(0, 0)])
+        self.assertEqual(list(db.get_range(stop=0, reverse=True)), [(0, 0)])
+        self.assertEqual(list(db.get_range(start=2, stop=0)),
+                         [(2, 20), (1, 10), (0, 0)])
+
+    def test_zero_cursor_key(self):
+        db = self.env['nums']
+        for i in range(5):
+            db[i] = i * 10
+
+        self.assertEqual(list(db.cursor(order='<=', key=0)), [(0, 0)])
+        self.assertEqual(list(db.cursor(order='<', key=1)), [(0, 0)])
+        self.assertEqual(list(db.cursor(order='>', key=0)),
+                         [(1, 10), (2, 20), (3, 30), (4, 40)])
+
+    def test_empty_string_boundaries(self):
+        db = self.env['strs']
+        db[''] = 'e'
+        db['a'] = 'va'
+        db['b'] = 'vb'
+
+        self.assertEqual(list(db[:'']), [('', 'e')])
+        self.assertEqual(list(db.get_range(stop='', reverse=True)),
+                         [('', 'e')])
+        self.assertEqual(list(db.cursor(order='<=', key='')), [('', 'e')])
+        self.assertEqual(list(db.cursor(order='>', key='')),
+                         [('a', 'va'), ('b', 'vb')])
+
+
+class TestU64Index(BaseTestCase):
+    databases = (
+        ('main', Schema(U64Index('key'), U64Index('value'))),
+    )
+
+    def test_u64_roundtrip(self):
+        db = self.env['main']
+        max64 = 2 ** 64 - 1
+        db[0] = max64
+        db[max64] = 0
+        db[2 ** 63] = 2 ** 63
+        db[1234] = 5678
+
+        self.assertEqual(db[0], max64)
+        self.assertEqual(db[max64], 0)
+        self.assertEqual(db[2 ** 63], 2 ** 63)
+        self.assertEqual(db[1234], 5678)
+
+        # Unsigned ordering is preserved during iteration and ranges.
+        self.assertEqual(list(db.keys()), [0, 1234, 2 ** 63, max64])
+        self.assertEqual(list(db[2 ** 63:max64]),
+                         [(2 ** 63, 2 ** 63), (max64, 0)])
+
+    def test_u64_bounds(self):
+        db = self.env['main']
+        self.assertRaises(OverflowError, db.set, 2 ** 64, 0)
+        self.assertRaises(OverflowError, db.set, -1, 0)
+        self.assertRaises(OverflowError, db.set, 0, 2 ** 64)
+        self.assertEqual(len(db), 0)
 
 
 if __name__ == '__main__':

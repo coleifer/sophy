@@ -132,9 +132,12 @@ cdef class Configuration(object):
         elif not isinstance(value, int):
             raise ValueError('Setting value must be bool, int or string.')
 
-        self.settings[bkey] = value
+        # Apply the setting before storing it, so that an invalid setting
+        # does not poison the buffered settings (which are re-applied every
+        # time the environment is opened).
         if self.env.is_open:
             self._set(bkey, value)
+        self.settings[bkey] = value
 
     def get_option(self, key, is_string=True):
         check_open(self.env)
@@ -154,20 +157,14 @@ cdef class Configuration(object):
         cdef int rc
 
         if isinstance(value, int):
-            rc = sp_setint(self.env.env, <const char *>key, <int>value)
+            rc = sp_setint(self.env.env, <const char *>key, <int64_t>value)
         elif isinstance(value, bytes):
             rc = sp_setstring(self.env.env, <const char *>key,
                               <const char *>value, 0)
         else:
             raise ValueError('Invalid setting detected: %s=%s' % (key, value))
 
-        if rc == -1:
-            error = _getustring(self.env.env, 'sophia.error')
-            if error:
-                raise SophiaError(error)
-            else:
-                raise SophiaError('unknown error occurred.')
-
+        _check(self.env.env, rc)
         return rc
 
     cdef configure(self):
@@ -312,7 +309,7 @@ cdef class Sophia(object):
             sp_destroy(self.env)
 
     cdef set_string(self, const char *key, const char *value):
-        sp_setstring(self.env, key, value, 0)
+        _check(self.env, sp_setstring(self.env, key, value, 0))
 
     cpdef Transaction transaction(self):
         return Transaction(self)
@@ -460,7 +457,7 @@ cdef class BaseIndex(object):
         self.name = name
         self.bname = encode(name)
 
-    cdef set_key(self, void *obj, value): pass
+    cdef set_key(self, void *env, void *obj, value): pass
     cdef get_key(self, void *obj): pass
 
 
@@ -476,7 +473,7 @@ cdef class SerializedIndex(BaseIndex):
         self._serialize = serialize
         self._deserialize = deserialize
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             bytes bvalue
             char *buf
@@ -487,7 +484,8 @@ cdef class SerializedIndex(BaseIndex):
             bvalue = encode(bvalue)
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
+        _check(env, sp_setstring(obj, <const char *>self.bname, buf,
+                                 buflen + 1))
         return bvalue
 
     cdef get_key(self, void *obj):
@@ -504,14 +502,15 @@ cdef class BytesIndex(BaseIndex):
     by_reference = True
     data_type = SCHEMA_STRING
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             bytes bvalue = encode(value)
             char *buf
             Py_ssize_t buflen
 
         PyBytes_AsStringAndSize(bvalue, &buf, &buflen)
-        sp_setstring(obj, <const char *>self.bname, buf, buflen + 1)
+        _check(env, sp_setstring(obj, <const char *>self.bname, buf,
+                                 buflen + 1))
         return bvalue
 
     cdef get_key(self, void *obj):
@@ -529,40 +528,42 @@ cdef class StringIndex(BytesIndex):
 cdef class U64Index(BaseIndex):
     data_type = SCHEMA_U64
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             uint64_t ival = <uint64_t>value
-        sp_setint(obj, <const char *>self.bname, ival)
+        # Values above 2**63-1 wrap to negative int64, preserving the bit
+        # pattern; get_key() casts back to uint64_t for the round-trip.
+        _check(env, sp_setint(obj, <const char *>self.bname, <int64_t>ival))
 
     cdef get_key(self, void *obj):
-        return sp_getint(obj, <const char *>self.bname)
+        return <uint64_t>sp_getint(obj, <const char *>self.bname)
 
 
 cdef class U32Index(U64Index):
     data_type = SCHEMA_U32
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             uint32_t ival = <uint32_t>value
-        sp_setint(obj, <const char *>self.bname, ival)
+        _check(env, sp_setint(obj, <const char *>self.bname, ival))
 
 
 cdef class U16Index(U64Index):
     data_type = SCHEMA_U16
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             uint16_t ival = <uint16_t>value
-        sp_setint(obj, <const char *>self.bname, ival)
+        _check(env, sp_setint(obj, <const char *>self.bname, ival))
 
 
 cdef class U8Index(U64Index):
     data_type = SCHEMA_U8
 
-    cdef set_key(self, void *obj, value):
+    cdef set_key(self, void *env, void *obj, value):
         cdef:
             uint8_t ival = <uint8_t>value
-        sp_setint(obj, <const char *>self.bname, ival)
+        _check(env, sp_setint(obj, <const char *>self.bname, ival))
 
 
 cdef class U64RevIndex(U64Index):
@@ -681,7 +682,7 @@ cdef class Schema(object):
         self.value_length = len(self.value)
         self.multi_value = self.value_length > 1
 
-    cdef set_key(self, Document doc, tuple parts):
+    cdef set_key(self, void *env, Document doc, tuple parts):
         cdef:
             BaseIndex index
             int i
@@ -690,7 +691,7 @@ cdef class Schema(object):
             raise ValueError('key must be a %s-tuple' % self.key_length)
 
         for i, index in enumerate(self.key):
-            ref = index.set_key(doc.handle, parts[i])
+            ref = index.set_key(env, doc.handle, parts[i])
             if index.by_reference:
                 doc.refs.append(ref)
 
@@ -703,7 +704,7 @@ cdef class Schema(object):
             accum.append(index.get_key(doc.handle))
         return tuple(accum)
 
-    cdef set_value(self, Document doc, tuple parts):
+    cdef set_value(self, void *env, Document doc, tuple parts):
         cdef:
             BaseIndex index
             int i
@@ -712,7 +713,7 @@ cdef class Schema(object):
             raise ValueError('value must be a %s-tuple' % self.value_length)
 
         for i, index in enumerate(self.value):
-            ref = index.set_key(doc.handle, parts[i])
+            ref = index.set_key(env, doc.handle, parts[i])
             if index.by_reference:
                 doc.refs.append(ref)
 
@@ -755,13 +756,25 @@ cdef class Database(object):
 
     cdef _set(self, tuple key, tuple value):
         cdef:
+            int rc
             void *handle = sp_document(self.db)
+            void *target
             Document doc = create_document(handle)
 
-        self.schema.set_key(doc, key)
-        self.schema.set_value(doc, value)
-        sp_set(self._get_target(), doc.handle)
+        # Until the document is consumed by sp_set(), we own the handle and
+        # must destroy it if an error prevents the write.
+        try:
+            self.schema.set_key(self.env.env, doc, key)
+            self.schema.set_value(self.env.env, doc, value)
+            target = self._get_target()
+        except:
+            sp_destroy(doc.handle)
+            doc.release_refs()
+            raise
+
+        rc = sp_set(target, doc.handle)
         doc.release_refs()
+        _check(self.env.env, rc)
 
     def set(self, key, value):
         check_open(self.env)
@@ -773,18 +786,27 @@ cdef class Database(object):
         cdef:
             void *handle = sp_document(self.db)
             void *result
+            void *target
             Document doc = create_document(handle)
 
-        self.schema.set_key(doc, key)
-        result = sp_get(self._get_target(), doc.handle)
+        try:
+            self.schema.set_key(self.env.env, doc, key)
+            target = self._get_target()
+        except:
+            sp_destroy(doc.handle)
+            doc.release_refs()
+            raise
+
+        result = sp_get(target, doc.handle)
         doc.release_refs()
         if not result:
             return
 
         doc.handle = result
-        data = self.schema.get_value(doc)
-        sp_destroy(result)
-        return data
+        try:
+            return self.schema.get_value(doc)
+        finally:
+            sp_destroy(result)
 
     def get(self, key, default=None):
         check_open(self.env)
@@ -798,10 +820,18 @@ cdef class Database(object):
         cdef:
             void *handle = sp_document(self.db)
             void *result
+            void *target
             Document doc = create_document(handle)
 
-        self.schema.set_key(doc, key)
-        result = sp_get(self._get_target(), doc.handle)
+        try:
+            self.schema.set_key(self.env.env, doc, key)
+            target = self._get_target()
+        except:
+            sp_destroy(doc.handle)
+            doc.release_refs()
+            raise
+
+        result = sp_get(target, doc.handle)
         doc.release_refs()
         if result:
             sp_destroy(result)
@@ -810,13 +840,23 @@ cdef class Database(object):
 
     cdef _delete(self, tuple key):
         cdef:
-            int ret
+            int rc
             void *handle = sp_document(self.db)
+            void *target
             Document doc = create_document(handle)
-        self.schema.set_key(doc, key)
-        ret = sp_delete(self._get_target(), doc.handle)
+
+        try:
+            self.schema.set_key(self.env.env, doc, key)
+            target = self._get_target()
+        except:
+            sp_destroy(doc.handle)
+            doc.release_refs()
+            raise
+
+        rc = sp_delete(target, doc.handle)
         doc.release_refs()
-        return ret
+        _check(self.env.env, rc)
+        return rc
 
     def delete(self, key):
         check_open(self.env)
@@ -911,7 +951,7 @@ cdef class Database(object):
         order = '<=' if reverse else '>='
         cursor = self.cursor(order=order, key=start)
         for key, value in cursor:
-            if stop:
+            if stop is not None:
                 if reverse and key < stop:
                     break
                 elif not reverse and key > stop:
@@ -1032,7 +1072,7 @@ cdef class Cursor(object):
                   keys=True, values=True):
         self.db = db
         self.order = encode(order)
-        if key:
+        if key is not None:
             self.key = (key,) if not isinstance(key, tuple) else key
         self.prefix = encode(prefix) if prefix else None
         self.keys = keys
@@ -1048,21 +1088,34 @@ cdef class Cursor(object):
             sp_destroy(self.cursor)
 
     def __iter__(self):
+        cdef void *handle
+
         check_open(self.db.env)
         if self.cursor:
             sp_destroy(self.cursor)
             self.cursor = <void *>0
 
         self.cursor = sp_cursor(self.db.env.env)
-        cdef void *handle = sp_document(self.db.db)
+        handle = sp_document(self.db.db)
         self.current_item = create_document(handle)
-        if self.key:
-            self.db.schema.set_key(self.current_item, self.key)
-        sp_setstring(self.current_item.handle, b'order', <char *>self.order, 0)
-        if self.prefix:
-            sp_setstring(self.current_item.handle, b'prefix',
-                         <char *>self.prefix,
-                         (sizeof(char) * len(self.prefix)))
+        try:
+            if self.key is not None:
+                self.db.schema.set_key(self.db.env.env, self.current_item,
+                                       self.key)
+            _check(self.db.env.env,
+                   sp_setstring(self.current_item.handle, b'order',
+                                <char *>self.order, 0))
+            if self.prefix:
+                _check(self.db.env.env,
+                       sp_setstring(self.current_item.handle, b'prefix',
+                                    <char *>self.prefix,
+                                    (sizeof(char) * len(self.prefix))))
+        except:
+            sp_destroy(self.current_item.handle)
+            self.current_item.handle = <void *>0
+            sp_destroy(self.cursor)
+            self.cursor = <void *>0
+            raise
         return self
 
     def __next__(self):
