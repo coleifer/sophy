@@ -221,10 +221,10 @@ cdef class Sophia(object):
         dict database_lookup
         list databases
         readonly unicode path
-        # Incremented every time the environment is closed. Transactions and
-        # cursors record the generation their handle was created under, so
-        # that a handle from a destroyed environment is never used or
-        # destroyed after the environment is re-opened.
+        # Incremented every time the environment is closed. Transactions,
+        # cursors and databases record the generation their handle was
+        # created under, so that a handle from a destroyed environment is
+        # never used or destroyed after the environment is re-opened.
         uint64_t generation
         void *env
 
@@ -288,6 +288,7 @@ cdef class Sophia(object):
                             encode(index.data_type))
 
         db.db = sp_getobject(self.env, b'db.' + bname)
+        db.generation = self.generation
 
     def open(self):
         if self.is_open:
@@ -769,12 +770,14 @@ cdef class Database(object):
     cdef:
         bytes bname
         Schema schema
+        uint64_t generation
         void *db
         readonly Sophia env
         readonly name
 
     def __cinit__(self):
         self.db = <void *>0
+        self.generation = 0
 
     def __init__(self, Sophia env, name, schema):
         self.env = env
@@ -785,14 +788,23 @@ cdef class Database(object):
     def __dealloc__(self):
         self.db = <void *>0
 
-    cdef void *_get_target(self) except NULL:
+    # Operations must resolve _get_target() and _db_handle() before creating
+    # a document, so that a handle from a destroyed environment raises
+    # instead of being dereferenced.
+    cdef void *_db_handle(self) except NULL:
+        if not self.db or self.generation != self.env.generation:
+            raise SophiaError('Database handle was invalidated when its '
+                              'environment was closed.')
         return self.db
+
+    cdef void *_get_target(self) except NULL:
+        return self._db_handle()
 
     cdef _set(self, tuple key, tuple value):
         cdef:
             int rc
-            void *handle = sp_document(self.db)
-            void *target
+            void *target = self._get_target()
+            void *handle = sp_document(self._db_handle())
             Document doc = create_document(handle)
 
         # Until the document is consumed by sp_set(), we own the handle and
@@ -800,7 +812,6 @@ cdef class Database(object):
         try:
             self.schema.set_key(self.env.env, doc, key)
             self.schema.set_value(self.env.env, doc, value)
-            target = self._get_target()
         except:
             sp_destroy(doc.handle)
             doc.release_refs()
@@ -818,14 +829,13 @@ cdef class Database(object):
 
     cdef tuple _get(self, tuple key):
         cdef:
-            void *handle = sp_document(self.db)
+            void *target = self._get_target()
+            void *handle = sp_document(self._db_handle())
             void *result
-            void *target
             Document doc = create_document(handle)
 
         try:
             self.schema.set_key(self.env.env, doc, key)
-            target = self._get_target()
         except:
             sp_destroy(doc.handle)
             doc.release_refs()
@@ -852,14 +862,13 @@ cdef class Database(object):
 
     cdef _exists(self, tuple key):
         cdef:
-            void *handle = sp_document(self.db)
+            void *target = self._get_target()
+            void *handle = sp_document(self._db_handle())
             void *result
-            void *target
             Document doc = create_document(handle)
 
         try:
             self.schema.set_key(self.env.env, doc, key)
-            target = self._get_target()
         except:
             sp_destroy(doc.handle)
             doc.release_refs()
@@ -875,13 +884,12 @@ cdef class Database(object):
     cdef _delete(self, tuple key):
         cdef:
             int rc
-            void *handle = sp_document(self.db)
-            void *target
+            void *target = self._get_target()
+            void *handle = sp_document(self._db_handle())
             Document doc = create_document(handle)
 
         try:
             self.schema.set_key(self.env.env, doc, key)
-            target = self._get_target()
         except:
             sp_destroy(doc.handle)
             doc.release_refs()
@@ -1078,11 +1086,17 @@ cdef class Database(object):
 cdef class DatabaseTransaction(Database):
     cdef:
         Transaction transaction
+        Database wrapped
 
     def __init__(self, Database db, Transaction transaction):
         super(DatabaseTransaction, self).__init__(db.env, db.name, db.schema)
         self.transaction = transaction
-        self.db = db.db
+        self.wrapped = db
+
+    cdef void *_db_handle(self) except NULL:
+        # Resolve through the wrapped database rather than snapshotting its
+        # handle, which would dangle after the environment is re-opened.
+        return self.wrapped._db_handle()
 
     cdef void *_get_target(self) except NULL:
         if not self.transaction.txn or \
@@ -1138,9 +1152,12 @@ cdef class Cursor(object):
             sp_destroy(self.cursor)
 
     def __iter__(self):
-        cdef void *handle
+        cdef:
+            void *dbhandle
+            void *handle
 
         check_open(self.db.env)
+        dbhandle = self.db._db_handle()
         if self.cursor:
             # Only destroy the previous cursor handle if it belongs to the
             # current incarnation of the environment.
@@ -1150,7 +1167,7 @@ cdef class Cursor(object):
 
         self.cursor = sp_cursor(self.db.env.env)
         self.generation = self.db.env.generation
-        handle = sp_document(self.db.db)
+        handle = sp_document(dbhandle)
         self.current_item = create_document(handle)
         try:
             if self.key is not None:

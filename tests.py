@@ -1085,6 +1085,58 @@ class TestCursorLifecycle(BaseTestCase):
         del txn  # Must not destroy the stale handle.
         self.assertFalse('k1' in db)
 
+    def test_txn_db_retained_across_reopen(self):
+        db = self.env['main']
+        txn = self.env.transaction().begin()
+        tdb = txn[db]
+        tdb['k1'] = 'v1'
+        txn.commit(begin=False)
+
+        self.assertTrue(self.env.close())
+        self.assertTrue(self.env.open())
+
+        # While its transaction is inactive the retained wrapper raises
+        # cleanly (previously it dereferenced the stale db handle it
+        # snapshotted at construction).
+        self.assertRaises(SophiaError, tdb.get, 'k1')
+        self.assertRaises(SophiaError, tdb.set, 'k2', 'v2')
+        self.assertRaises(SophiaError, tdb.exists, 'k1')
+        self.assertRaises(SophiaError, tdb.delete, 'k1')
+
+        # Cursors do not read through the transaction; the wrapper resolves
+        # the refreshed handle from the wrapped database.
+        self.assertEqual(list(tdb.cursor()), [('k1', 'v1')])
+
+        # Restarting the transaction makes the wrapper usable against the
+        # new incarnation of the environment.
+        txn.begin()
+        self.assertEqual(tdb['k1'], 'v1')
+        tdb['k2'] = 'v2'
+        txn.commit(begin=False)
+        self.assertEqual(db['k2'], 'v2')
+
+    def test_removed_db_across_reopen(self):
+        db = self.env['main']
+        db['k1'] = 'v1'
+
+        self.assertTrue(self.env.close())
+        self.env.remove_database('main')
+        self.assertTrue(self.env.open())
+
+        # The removed database's handle died with the old environment and
+        # was not refreshed on open; operations raise instead of
+        # dereferencing it.
+        self.assertRaises(SophiaError, db.get, 'k1')
+        self.assertRaises(SophiaError, db.set, 'k2', 'v2')
+        self.assertRaises(SophiaError, db.exists, 'k1')
+        self.assertRaises(SophiaError, db.delete, 'k1')
+        self.assertRaises(SophiaError, lambda: list(db.cursor()))
+
+        # Other databases in the environment are unaffected.
+        nums = self.env['nums']
+        nums[1] = 'v1'
+        self.assertEqual(nums[1], 'v1')
+
 
 class TestOperations(BaseTestCase):
     def test_operation_not_buffered(self):
