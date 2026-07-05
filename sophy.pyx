@@ -10,6 +10,7 @@ from libc.stdint cimport uint8_t
 from libc.stdint cimport uint16_t
 from libc.stdint cimport uint32_t
 from libc.stdint cimport uint64_t
+from libc.stdlib cimport free
 
 import json
 import uuid
@@ -96,9 +97,24 @@ cdef inline _getustring(void *obj, const char *key):
         return decode(buf[:nlen - 1])
 
 
+cdef inline _getustring_conf(void *env, const char *key):
+    # Unlike document field reads, which return a pointer into the document,
+    # configuration reads return a malloc'd copy owned by the caller.
+    cdef:
+        char *buf
+        int nlen
+
+    buf = <char *>sp_getstring(env, key, &nlen)
+    if buf:
+        try:
+            return decode(buf[:nlen - 1])
+        finally:
+            free(buf)
+
+
 cdef inline _check(void *env, int rc):
     if rc == -1:
-        error = _getustring(env, 'sophia.error')
+        error = _getustring_conf(env, 'sophia.error')
         if error:
             raise SophiaError(error)
         else:
@@ -151,7 +167,7 @@ cdef class Configuration(object):
         check_open(self.env)
         cdef bytes bkey = encode(key)
         if is_string:
-            return _getustring(self.env.env, <const char *>bkey)
+            return _getustring_conf(self.env.env, <const char *>bkey)
         else:
             return sp_getint(self.env.env, <const char *>bkey)
 
